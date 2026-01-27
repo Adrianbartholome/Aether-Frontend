@@ -7,15 +7,15 @@ import './index.css';
 window.__app_id = "aether-hash-chain-app-id"; 
 window.__initial_auth_token = ""; 
 
-// !!! REPLACE THESE WITH YOUR ACTUAL FIREBASE CONFIG FROM CONSOLE !!!
-window.__firebase_config = JSON.stringify({
-  "apiKey": "AIzaSy...", 
-  "authDomain": "your-project.firebaseapp.com",
-  "projectId": "your-project-id",
-  "storageBucket": "your-project.appspot.com",
-  "messagingSenderId": "123456...",
-  "appId": "1:12345..." 
-});
+const firebaseConfig = {
+  apiKey: "AIzaSyAuZB1KQmF2AvzQ8KrKBxgebpZEuhosOnA",
+  authDomain: "aether-base-e829c.firebaseapp.com",
+  projectId: "aether-base-e829c",
+  storageBucket: "aether-base-e829c.firebasestorage.app",
+  messagingSenderId: "447469239626",
+  appId: "1:447469239626:web:20c05a667827a6ad5495b3",
+  measurementId: "G-HSJ0N337YE"
+};
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
