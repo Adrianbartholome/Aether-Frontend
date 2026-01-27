@@ -2,8 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom Scrollbar behavior for the chat window */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
 body {
-  background-color: #111827; 
-  color: white;
-  font-family: sans-serif;
+    @apply bg-gray-900 overflow-hidden;
 }
