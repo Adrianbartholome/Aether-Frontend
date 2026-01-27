@@ -2,15 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom Scrollbar behavior for the chat window */
-.scrollbar-hide::-webkit-scrollbar {
-    display: none;
+/* Custom Styled Scrollbar for the chat window */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
 }
-.scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: #1f2937; /* gray-800 */
+    border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #4b5563; /* gray-600 */
+    border-radius: 10px;
+    border: 2px solid #1f2937;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #60a5fa; /* blue-400 */
 }
 
 body {
-    @apply bg-gray-900 overflow-hidden;
+    @apply bg-gray-900;
+    margin: 0;
+    padding: 0;
 }

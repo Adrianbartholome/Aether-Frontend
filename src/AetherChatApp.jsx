@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Send, FileText, Check, AlertTriangle, Loader, Trash2, LogOut, User, Archive, Zap, ShieldOff } from 'lucide-react';
+import { Send, FileText, Check, AlertTriangle, Loader, Trash2, LogOut, User, Archive, Zap, ShieldOff, MoreVertical, History } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
@@ -43,11 +43,30 @@ const App = () => {
     const [status, setStatus] = useState(apiKey ? 'Ready' : 'API Key Required');
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [user, setUser] = useState(null);
+    const [showMenu, setShowMenu] = useState(false);
+    
+    // Non-destructive clear: keep track of when we last "cleared" the window
+    const [viewSince, setViewSince] = useState(() => {
+        const saved = localStorage.getItem('aether_view_since');
+        return saved ? parseInt(saved, 10) : 0;
+    });
 
     const messagesEndRef = useRef(null);
     const dbRef = useRef(null);
     const authRef = useRef(null);
     const messagesCollectionPathRef = useRef(null);
+    const menuRef = useRef(null);
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setShowMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     useEffect(() => {
         const firebaseConfigStr = window.__firebase_config;
@@ -93,13 +112,32 @@ const App = () => {
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
+    }, [messages, viewSince]);
 
     const saveMessage = async (sender, text, source) => {
         if (!dbRef.current || !user) return;
         await addDoc(collection(dbRef.current, messagesCollectionPathRef.current), {
             sender, text, source: source || 'conversation', userId: user.uid, timestamp: serverTimestamp()
         });
+    };
+
+    const handleClearChat = () => {
+        if (!window.confirm("Clear the chat window? This will hide current messages from view but will NOT delete them from the database or Hash Chain.")) return;
+        
+        const now = Date.now();
+        setViewSince(now);
+        localStorage.setItem('aether_view_since', now.toString());
+        setStatus('Window Cleared');
+        setShowMenu(false);
+        setTimeout(() => setStatus('Ready'), 2000);
+    };
+
+    const handleRestoreHistory = () => {
+        setViewSince(0);
+        localStorage.removeItem('aether_view_since');
+        setStatus('History Recalled');
+        setShowMenu(false);
+        setTimeout(() => setStatus('Ready'), 2000);
     };
 
     const commitMemory = async (text, type) => {
@@ -125,6 +163,7 @@ const App = () => {
 
     const callGemini = async (query, context) => {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+        // Use all context for the AI, even if hidden from the UI
         const history = context.map(m => `${m.sender}: ${m.text}`).join('\n');
         const payload = {
             contents: [{ parts: [{ text: `History:\n${history}\nUser Query: ${query}` }] }],
@@ -172,25 +211,69 @@ const App = () => {
         setInput('');
     };
 
+    // Filter messages to show only those after the last "clear"
+    const visibleMessages = messages.filter(m => {
+        if (!m.timestamp) return true; // Show pending local messages
+        return m.timestamp.toMillis() > viewSince;
+    });
+
     return (
         <div className="flex flex-col h-screen bg-gray-900 text-gray-100 font-sans p-4 overflow-hidden">
-            <header className="flex justify-between items-center bg-gray-800 p-4 rounded-xl shadow-lg mb-4">
+            <header className="flex justify-between items-center bg-gray-800 p-4 rounded-xl shadow-lg mb-4 relative">
                 <h1 className="text-xl font-bold flex items-center gap-2 italic tracking-tighter">
                     <Zap className="text-blue-400" /> {APP_TITLE}
                 </h1>
-                <div className="flex gap-2">
-                    <button onClick={() => commitMemory(messages.map(m => m.text).join('\n'), 'Manual')} className="bg-indigo-600 hover:bg-indigo-500 p-2 rounded-lg text-xs flex items-center gap-1">
+                <div className="flex gap-2 items-center">
+                    <button onClick={() => commitMemory(messages.map(m => m.text).join('\n'), 'Manual')} className="bg-indigo-600 hover:bg-indigo-500 p-2 rounded-lg text-xs flex items-center gap-1 transition shadow-md">
                         <Archive size={14} /> Commit Thread
                     </button>
-                    <button onClick={() => window.confirm("Clear chat collection?")} className="bg-red-600 hover:bg-red-500 p-2 rounded-lg text-xs flex items-center gap-1">
-                        <Trash2 size={14} /> Clear
-                    </button>
+                    
+                    <div className="relative" ref={menuRef}>
+                        <button 
+                            onClick={() => setShowMenu(!showMenu)} 
+                            className="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition"
+                        >
+                            <MoreVertical size={18} />
+                        </button>
+
+                        {showMenu && (
+                            <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                                <button 
+                                    onClick={handleRestoreHistory}
+                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
+                                >
+                                    <History size={16} className="text-blue-400" /> Recall Full History
+                                </button>
+                                <button 
+                                    onClick={handleClearChat}
+                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 text-red-400 flex items-center gap-2 transition"
+                                >
+                                    <Trash2 size={16} /> Clear Window
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </header>
 
-            <main className="flex-1 overflow-y-auto space-y-4 bg-gray-800 p-6 rounded-xl shadow-inner mb-4 scrollbar-hide">
-                {messages.length === 0 && <p className="text-center text-gray-600 mt-20 font-mono text-sm uppercase tracking-widest">Awaiting human input sequence...</p>}
-                {messages.map((m) => (
+            <main className="flex-1 overflow-y-auto space-y-4 bg-gray-800 p-6 rounded-xl shadow-inner mb-4 custom-scrollbar">
+                {visibleMessages.length === 0 && (
+                    <div className="text-center text-gray-600 mt-20">
+                        <p className="font-mono text-sm uppercase tracking-widest">Awaiting input sequence...</p>
+                        {viewSince > 0 && (
+                            <div className="mt-4">
+                                <p className="text-xs italic opacity-50 mb-3">(Older messages are preserved in the database)</p>
+                                <button 
+                                    onClick={handleRestoreHistory}
+                                    className="text-xs text-blue-400 hover:underline flex items-center gap-1 mx-auto"
+                                >
+                                    <History size={12} /> Recall Full History
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+                {visibleMessages.map((m) => (
                     <div key={m.id} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[85%] p-4 rounded-2xl shadow-md ${
                             m.source === 'system' ? 'bg-indigo-900/40 text-indigo-200 border border-indigo-500/20' :
@@ -219,10 +302,10 @@ const App = () => {
                         value={input} 
                         onChange={e => setInput(e.target.value)}
                         placeholder="Provide conversational input..."
-                        className="flex-1 bg-gray-700 border-none rounded-xl p-3 focus:ring-2 focus:ring-blue-500 text-sm"
+                        className="flex-1 bg-gray-700 border-none rounded-xl p-3 focus:ring-2 focus:ring-blue-500 text-sm shadow-inner"
                         disabled={loading}
                     />
-                    <button type="submit" disabled={loading} className="bg-blue-600 p-3 rounded-xl hover:bg-blue-500 disabled:opacity-50 transition">
+                    <button type="submit" disabled={loading} className="bg-blue-600 p-3 rounded-xl hover:bg-blue-500 disabled:opacity-50 transition shadow-lg">
                         <Send size={20} />
                     </button>
                 </form>
