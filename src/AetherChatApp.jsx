@@ -69,6 +69,7 @@ const chunkText = (text, size, overlap) => {
     let i = 0;
     while (i < text.length) {
         chunks.push(text.substring(i, i + size));
+        // Move forward by size MINUS overlap to create the bridge
         i += (size - overlap);
     }
     return chunks;
@@ -181,7 +182,7 @@ const App = () => {
     const [status, setStatus] = useState(apiKey ? 'Systems Online' : 'API Key Missing');
     const [statusType, setStatusType] = useState('neutral'); 
     const [tooltipsEnabled, setTooltipsEnabled] = useState(true);
-    const [isDragging, setIsDragging] = useState(false); // New Drag State
+    const [isDragging, setIsDragging] = useState(false);
 
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [user, setUser] = useState(null);
@@ -413,6 +414,7 @@ const App = () => {
 
         const userInput = input.trim() || `[File Upload]: ${file?.name}`;
 
+        // --- 1. CHECK FOR DELETE COMMANDS ---
         const rangeMatch = userInput.match(/(?:delete range|purge range)\s+(\d+)-(\d+)/i);
         if (rangeMatch) {
             const startId = parseInt(rangeMatch[1]);
@@ -453,41 +455,70 @@ const App = () => {
         setLoading(true);
         await saveMessage('user', userInput);
 
+        // --- FILE HANDLING (THE FIX) ---
         if (file) {
             const reader = new FileReader();
             reader.onload = async (ev) => {
                 const fileContent = ev.target.result;
+
+                // 1. If explicit "Commit File" command
                 if (manualCommitType === 'file') {
+                    // Step A: CHUNK IT
                     const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
                     updateStatus(`CHUNKING FILE: ${chunks.length} BLOCKS...`, 'working');
                     
                     let successCount = 0;
                     for (let i = 0; i < chunks.length; i++) {
                         updateStatus(`BURNING CHUNK ${i + 1}/${chunks.length}...`, 'working');
-                        const success = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: chunks[i] });
+                        
+                        // [FIX 1] INJECT HEADER: Add Filename and Part Number to the chunk text
+                        const chunkWithHeader = `[FILE: ${file.name} | PART ${i+1}/${chunks.length}]\n\n${chunks[i]}`;
+
+                        // [FIX 2] INJECT SCORE: Force score to 9 for Core Memory Files
+                        const success = await executeTitanCommand({ 
+                            action: 'commit', 
+                            commit_type: 'file', 
+                            memory_text: chunkWithHeader,
+                            override_score: 9 
+                        });
+                        
                         if (success) successCount++;
                     }
+                    
+                    // Step B: FULL COPY
                     if (successCount === chunks.length) {
                         updateStatus(`CHUNKS COMPLETE. ARCHIVING MASTER COPY...`, 'working');
                         const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
-                        const fullSuccess = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: masterPayload });
+                        
+                        // Master copy also gets Score 9
+                        const fullSuccess = await executeTitanCommand({ 
+                            action: 'commit', 
+                            commit_type: 'file', 
+                            memory_text: masterPayload,
+                            override_score: 9 
+                        });
+
                         if (fullSuccess) {
                             updateStatus(`FILE BURN COMPLETE (CHUNKS + MASTER)`, 'success');
-                            await saveMessage('bot', `[SYSTEM]: File archived in ${chunks.length} precision blocks + 1 master copy.`, 'system');
+                            await saveMessage('bot', `[SYSTEM]: File archived in ${chunks.length} precision blocks + 1 master copy. All assigned Priority Index 9.`, 'system');
                         } else {
                             updateStatus("MASTER COPY FAILED", 'error');
                         }
                     } else {
                         updateStatus("PARTIAL CHUNK FAILURE", 'error');
                     }
-                } else {
+                } 
+                // 2. Chat with file
+                else {
                     await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
                 }
+                
                 setFile(null);
                 setLoading(false);
             };
             reader.readAsText(file);
         } else {
+            // No file, normal text handling
             if (manualCommitType) {
                 updateStatus(`ARCHITECT OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
                 const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
