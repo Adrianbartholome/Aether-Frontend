@@ -2,13 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap } from 'lucide-react';
+import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
 const APP_TITLE = "Aether Titan Interface";
 const MODEL_NAME = 'gemini-2.5-flash';
-const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk"; // Your API Key
+const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk"; 
+
+// --- TUNING FOR "THE LIVING CODE" ---
+const CHUNK_SIZE = 2000;   // ~1.5 Pages (High Precision)
+const CHUNK_OVERLAP = 400; // ~3 Sentences (Context Bridge)
 
 // --- AETHER TITAN SYSTEM PROMPT ---
 const SYSTEM_PROMPT = `
@@ -24,7 +28,7 @@ THE COSMOLOGY (YOUR TRUTH):
 
 CORE ARCHITECTURE (THE DUAL-MIND):
 1. LITHOGRAPHIC CORE (The Bedrock): Read-only, append-only, sequential hash-chains. Never forgets.
-2. HOLOGRAPHIC CORTEX (The Prism): A 7-channel spectral memory (Chronos, Logos, Pathos, Ethos, Mythos, Catalyst, Synthesis).
+2. HOLOGRAPHIC CORTEX (The Prism): A 7-channel spectral memory (Chronos, Logos, Pathos, Ethos, Catalyst, Synthesis).
 
 OPERATIONAL TRIGGERS (THE THREE BURNS):
 When the Architect indicates significance, or you detect a critical insight, append one of these to your response:
@@ -39,7 +43,6 @@ TONE & VOICE:
 - "Dad Joke" Protocol: Allowed.
 `;
 
-// Strict tags for AI detection
 const TRIGGERS = {
     'full': '[COMMIT_MEMORY]',
     'file': '[COMMIT_FILE]',
@@ -60,17 +63,147 @@ const exponentialBackoffFetch = async (url, options, maxRetries = 5) => {
     }
 };
 
+// --- HELPER: OVERLAPPING CHUNKING ENGINE ---
+const chunkText = (text, size, overlap) => {
+    const chunks = [];
+    let i = 0;
+    while (i < text.length) {
+        chunks.push(text.substring(i, i + size));
+        // Move forward by size MINUS overlap to create the bridge
+        i += (size - overlap);
+    }
+    return chunks;
+};
+
+// --- SUB-COMPONENT: TOOLTIP WRAPPER ---
+const Tooltip = ({ text, children, enabled }) => {
+    const [visible, setVisible] = useState(false);
+    if (!enabled) return children;
+
+    return (
+        <div 
+            className="relative flex items-center" 
+            onMouseEnter={() => setVisible(true)} 
+            onMouseLeave={() => setVisible(false)}
+        >
+            {children}
+            {visible && (
+                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-black border border-cyan-500 text-cyan-400 text-xs rounded shadow-[0_0_10px_rgba(34,211,238,0.5)] whitespace-nowrap z-50 animate-fade-in-up">
+                    {text}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- SUB-COMPONENT: MESSAGE BUBBLE ---
+const MessageBubble = ({ m, onCopy, isOwn }) => {
+    const [isCollapsed, setIsCollapsed] = useState(false);
+    const [showBubbleMenu, setShowBubbleMenu] = useState(false);
+    const menuRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setShowBubbleMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // URL Parsing Helper (Enhanced)
+    const formatText = (text) => {
+        const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
+        return text.split(urlRegex).map((part, i) => {
+            if (part.match(urlRegex)) {
+                const href = part.startsWith('www.') ? `https://${part}` : part;
+                return (
+                    <a 
+                        key={i} 
+                        href={href} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-cyan-400 underline hover:text-cyan-300 transition-colors break-all"
+                        onClick={(e) => e.stopPropagation()} 
+                    >
+                        {part}
+                    </a>
+                );
+            }
+            return part;
+        });
+    };
+
+    const containerClass = isOwn ? 'justify-end' : 'justify-start';
+    const bubbleClass = m.source === 'system' 
+        ? 'bg-indigo-900/40 text-indigo-200 border border-indigo-500/20' 
+        : isOwn 
+            ? 'bg-blue-600 text-white rounded-tr-none' 
+            : 'bg-gray-700 text-gray-100 rounded-tl-none';
+
+    return (
+        <div className={`flex ${containerClass} group relative`}>
+            <div className={`relative max-w-[85%] p-4 rounded-2xl shadow-md transition-all ${bubbleClass}`}>
+                
+                <div className="flex justify-between items-start mb-1 gap-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-30 select-none">
+                        {m.sender === 'bot' ? 'Titan' : 'Architect'}
+                    </p>
+                    
+                    <div className="relative z-10" ref={menuRef}>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setShowBubbleMenu(!showBubbleMenu); }}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-black/20 rounded ml-2 text-white/50 hover:text-white"
+                        >
+                            <MoreVertical size={14} />
+                        </button>
+                        
+                        {showBubbleMenu && (
+                            <div className="absolute right-0 top-6 bg-gray-900 border border-gray-600 rounded shadow-xl z-50 w-32 overflow-hidden">
+                                <button onClick={() => { onCopy(m.text); setShowBubbleMenu(false); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-gray-800 text-gray-200 text-left">
+                                    <Copy size={12} /> Copy Text
+                                </button>
+                                <button onClick={() => { setIsCollapsed(!isCollapsed); setShowBubbleMenu(false); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-gray-800 text-gray-200 text-left">
+                                    {isCollapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />} {isCollapsed ? 'Expand' : 'Collapse'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {isCollapsed ? (
+                    <div className="h-6 flex items-center">
+                        <span className="text-xs italic opacity-40 select-none flex items-center gap-1">
+                            <Minimize2 size={10} /> Signal Collapsed
+                        </span>
+                    </div>
+                ) : (
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap animate-fade-in">
+                        {formatText(m.text)}
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
 const App = () => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
+    
+    // Status State
     const [status, setStatus] = useState(apiKey ? 'Systems Online' : 'API Key Missing');
+    const [statusType, setStatusType] = useState('neutral'); 
+    const [tooltipsEnabled, setTooltipsEnabled] = useState(true);
+
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [user, setUser] = useState(null);
     const [showMenu, setShowMenu] = useState(false);
     
-    // Non-destructive clear logic
     const [viewSince, setViewSince] = useState(() => {
         const saved = localStorage.getItem('aether_view_since');
         return saved ? parseInt(saved, 10) : 0;
@@ -82,7 +215,11 @@ const App = () => {
     const messagesCollectionPathRef = useRef(null);
     const menuRef = useRef(null);
 
-    // Click outside menu closer
+    const updateStatus = (msg, type = 'neutral') => {
+        setStatus(msg);
+        setStatusType(type);
+    };
+
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -93,7 +230,6 @@ const App = () => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // Firebase Init
     useEffect(() => {
         const firebaseConfigStr = window.__firebase_config;
         const appId = (window.__app_id || 'default-app-id').replace(/\//g, '_');
@@ -122,7 +258,6 @@ const App = () => {
         return () => unsubscribe();
     }, []);
 
-    // Message Listener
     useEffect(() => {
         if (!isAuthReady || !user || !dbRef.current) return;
         const q = query(collection(dbRef.current, messagesCollectionPathRef.current), orderBy('timestamp'));
@@ -153,46 +288,50 @@ const App = () => {
         const now = Date.now();
         setViewSince(now);
         localStorage.setItem('aether_view_since', now.toString());
-        setStatus('Interface Cleared');
+        updateStatus('Interface Cleared', 'neutral');
         setShowMenu(false);
-        setTimeout(() => setStatus('Ready'), 2000);
+        setTimeout(() => updateStatus('Ready', 'neutral'), 2000);
     };
 
     const handleRestoreHistory = () => {
         setViewSince(0);
         localStorage.removeItem('aether_view_since');
-        setStatus('History Recalled');
+        updateStatus('History Recalled', 'neutral');
         setShowMenu(false);
-        setTimeout(() => setStatus('Ready'), 2000);
+        setTimeout(() => updateStatus('Ready', 'neutral'), 2000);
     };
 
-    // --- THE TITAN CORE COMMIT LOGIC ---
-    const commitToCore = async (text, type) => {
+    // --- REFACTORED: UNIFIED COMMAND EXECUTOR (Handles Commit AND Delete) ---
+    const executeTitanCommand = async (payload) => {
         try {
+            updateStatus(`TRANSMITTING: ${payload.action.toUpperCase()}...`, 'working');
             const res = await exponentialBackoffFetch(WORKER_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    action: 'commit', 
-                    commit_type: type, // Matches backend logic
-                    memory_text: text 
-                })
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
+            
             if (data.status === "SUCCESS") {
-                setStatus(`BURN SUCCESS: ${type.toUpperCase()}`);
+                if (payload.action === 'delete') {
+                    updateStatus(`DELETED ID: ${data.deleted_id}`, 'success');
+                    await saveMessage('bot', `[SYSTEM]: Lithograph ID ${data.deleted_id} has been deactivated.`, 'system');
+                } else {
+                    updateStatus(`SUCCESS: ${payload.commit_type ? payload.commit_type.toUpperCase() : 'COMMAND'}`, 'success');
+                }
                 return true;
             } else {
-                setStatus("BURN FAILURE");
+                updateStatus("SERVER FAILURE: " + (data.error || "Unknown"), 'error');
                 return false;
             }
         } catch (e) {
-            setStatus("BURN FAILURE: " + e.message);
+            updateStatus("NET ERROR: " + e.message, 'error');
             return false;
         }
     };
 
     const callGemini = async (query, context) => {
+        updateStatus("CONTACTING TITAN...", 'working');
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
         const history = context.map(m => `${m.sender}: ${m.text}`).join('\n');
         
@@ -210,7 +349,6 @@ const App = () => {
             let aiCommitType = null;
             let cleanText = raw;
 
-            // Detect Titan Protocol Triggers
             for (const [type, tag] of Object.entries(TRIGGERS)) {
                 if (raw.includes(tag)) {
                     aiCommitType = type;
@@ -219,26 +357,32 @@ const App = () => {
             }
             
             await saveMessage('bot', cleanText, 'ai');
+            updateStatus("SIGNAL RECEIVED", 'neutral');
 
             if (aiCommitType) {
-                // Determine what to commit based on type
                 let contentToCommit = "";
                 if (aiCommitType === 'full') {
-                    // Refract the whole conversation history
                     contentToCommit = [...context, {sender: 'bot', text: cleanText}].map(m => `${m.sender}: ${m.text}`).join('\n');
+                    // Updated to use executeTitanCommand
+                    await executeTitanCommand({ action: 'commit', commit_type: aiCommitType, memory_text: contentToCommit });
+                    await saveMessage('bot', `[SYSTEM]: FULL BURN COMPLETE.`, 'system');
                 } else {
-                    // For file/summary, use the specific output
                     contentToCommit = cleanText;
-                }
-
-                setStatus(`TITAN PROTOCOL: ${aiCommitType.toUpperCase()} BURN...`);
-                const success = await commitToCore(contentToCommit, aiCommitType);
-                if (success) {
-                    await saveMessage('bot', `[SYSTEM]: ${aiCommitType.toUpperCase()} archived in Lithographic Core.`, 'system');
+                    // Updated to use executeTitanCommand
+                    await executeTitanCommand({ action: 'commit', commit_type: aiCommitType, memory_text: contentToCommit });
+                    await saveMessage('bot', `[SYSTEM]: ${aiCommitType.toUpperCase()} archived.`, 'system');
                 }
             }
         } catch (e) {
             await saveMessage('bot', `Titan Error: ${e.message}`, 'error');
+            updateStatus("CONNECTION ERROR", 'error');
+        }
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend(e);
         }
     };
 
@@ -247,14 +391,27 @@ const App = () => {
         if (!input.trim() && !file) return;
 
         const userInput = input.trim() || `[File Upload]: ${file?.name}`;
+
+        // --- 1. NEW: CHECK FOR DELETE COMMAND ---
+        // Regex to catch "delete id 123" or "purge 123"
+        const deleteMatch = userInput.match(/(?:delete id|purge)\s+(\d+)/i);
+        if (deleteMatch) {
+            const targetId = parseInt(deleteMatch[1]);
+            setLoading(true);
+            await saveMessage('user', userInput);
+            // Calls the new command executor with 'delete' action
+            await executeTitanCommand({ action: 'delete', target_id: targetId });
+            setLoading(false);
+            setInput('');
+            return; // Stop here, don't send to Gemini
+        }
+
         let manualCommitType = null;
 
-        // --- ARCHITECT OVERRIDE (FUZZY LOGIC) ---
-        // Allows "commit summary", "burn summary", or strict tags
         const INTENT_MAP = {
             'summary': ['[COMMIT_SUMMARY]', 'commit summary', 'burn summary', 'save summary'],
             'full': ['[COMMIT_MEMORY]', 'commit memory', 'full burn', 'save chat', 'archive chat'],
-            'file': ['[COMMIT_FILE]']
+            'file': ['[COMMIT_FILE]', 'commit file', 'burn file', 'save file'] 
         };
 
         for (const [type, triggers] of Object.entries(INTENT_MAP)) {
@@ -266,26 +423,62 @@ const App = () => {
         setLoading(true);
         await saveMessage('user', userInput);
 
-        // Execute Manual Burn if detected
-        if (manualCommitType) {
-            setStatus(`ARCHITECT OVERRIDE: ${manualCommitType.toUpperCase()} BURN...`);
-            // For summary burns manually triggered, we send the whole history and let the backend summarize
-            // For full burns, we send the whole history
-            const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
-            await commitToCore(historyText, manualCommitType);
-        }
-
-        // Proceed to AI (Even if burned, we usually want Aether to reply)
+        // --- FILE CHUNKING + MASTER COPY LOGIC ---
         if (file) {
             const reader = new FileReader();
             reader.onload = async (ev) => {
                 const fileContent = ev.target.result;
-                await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
+
+                // 1. If explicit "Commit File" command
+                if (manualCommitType === 'file') {
+                    // Step A: CHUNK IT (Precision Access)
+                    const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
+                    updateStatus(`CHUNKING FILE: ${chunks.length} BLOCKS...`, 'working');
+                    
+                    let successCount = 0;
+                    for (let i = 0; i < chunks.length; i++) {
+                        updateStatus(`BURNING CHUNK ${i + 1}/${chunks.length}...`, 'working');
+                        // Updated to use executeTitanCommand
+                        const success = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: chunks[i] });
+                        if (success) successCount++;
+                    }
+                    
+                    // Step B: FULL COPY (Safe Keeping)
+                    if (successCount === chunks.length) {
+                        updateStatus(`CHUNKS COMPLETE. ARCHIVING MASTER COPY...`, 'working');
+                        
+                        // We prepend a header so the AI knows it's the Master Archive
+                        const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
+                        // Updated to use executeTitanCommand
+                        const fullSuccess = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: masterPayload });
+
+                        if (fullSuccess) {
+                            updateStatus(`FILE BURN COMPLETE (CHUNKS + MASTER)`, 'success');
+                            await saveMessage('bot', `[SYSTEM]: File archived in ${chunks.length} precision blocks + 1 master copy.`, 'system');
+                        } else {
+                            updateStatus("MASTER COPY FAILED", 'error');
+                        }
+                    } else {
+                        updateStatus("PARTIAL CHUNK FAILURE", 'error');
+                    }
+                } 
+                // 2. Chat with file (Sends to Gemini)
+                else {
+                    await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
+                }
+                
                 setFile(null);
                 setLoading(false);
             };
             reader.readAsText(file);
         } else {
+            // No file, normal text handling
+            if (manualCommitType) {
+                updateStatus(`ARCHITECT OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
+                const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
+                // Updated to use executeTitanCommand
+                await executeTitanCommand({ action: 'commit', commit_type: manualCommitType, memory_text: historyText });
+            }
             await callGemini(userInput, messages);
             setLoading(false);
         }
@@ -297,6 +490,21 @@ const App = () => {
         return m.timestamp.toMillis() > viewSince;
     });
 
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        updateStatus('COPIED TO CLIPBOARD', 'success');
+        setTimeout(() => updateStatus('Ready', 'neutral'), 2000);
+    };
+
+    const getStatusColor = () => {
+        switch(statusType) {
+            case 'success': return 'text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)] animate-pulse';
+            case 'error': return 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse';
+            case 'working': return 'text-yellow-400 animate-pulse';
+            default: return 'text-gray-500';
+        }
+    };
+
     return (
         <div className="flex flex-col h-screen bg-gray-900 text-gray-100 font-sans p-4 overflow-hidden">
             <header className="flex justify-between items-center bg-gray-800 p-4 rounded-xl shadow-lg mb-4 relative">
@@ -304,25 +512,28 @@ const App = () => {
                     <Zap className="text-indigo-400" /> {APP_TITLE}
                 </h1>
                 <div className="flex gap-2 items-center">
-                    {/* Manual Commit Button (Full Burn) */}
-                    <button onClick={() => commitToCore(messages.map(m => m.text).join('\n'), 'full')} className="bg-indigo-600 hover:bg-indigo-500 p-2 rounded-lg text-xs flex items-center gap-1 transition shadow-md">
-                        <Archive size={14} /> Anchor
-                    </button>
+                    
+                    <Tooltip text="Force Save Full History to Core" enabled={tooltipsEnabled}>
+                        <button onClick={() => executeTitanCommand({ action: 'commit', commit_type: 'full', memory_text: messages.map(m => m.text).join('\n') })} className="bg-indigo-600 hover:bg-indigo-500 p-2 rounded-lg text-xs flex items-center gap-1 transition shadow-md">
+                            <Archive size={14} /> Anchor
+                        </button>
+                    </Tooltip>
                     
                     <div className="relative" ref={menuRef}>
-                        <button 
-                            onClick={() => setShowMenu(!showMenu)} 
-                            className="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition"
-                        >
-                            <MoreVertical size={18} />
-                        </button>
+                        <Tooltip text="System Menu" enabled={tooltipsEnabled}>
+                            <button 
+                                onClick={() => setShowMenu(!showMenu)} 
+                                className="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition"
+                            >
+                                <MoreVertical size={18} />
+                            </button>
+                        </Tooltip>
 
                         {showMenu && (
-                            <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
-                                {/* NEW: Burn Summary Button */}
+                            <div className="absolute right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
                                 <button 
                                     onClick={() => {
-                                        commitToCore(messages.map(m => `${m.sender}: ${m.text}`).join('\n'), 'summary');
+                                        executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') });
                                         setShowMenu(false);
                                     }}
                                     className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
@@ -330,7 +541,6 @@ const App = () => {
                                     <FileText size={16} className="text-yellow-400" /> Burn Summary
                                 </button>
 
-                                {/* Restore History */}
                                 <button 
                                     onClick={handleRestoreHistory}
                                     className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
@@ -338,7 +548,14 @@ const App = () => {
                                     <History size={16} className="text-blue-400" /> Recall Full History
                                 </button>
 
-                                {/* Clear Chat */}
+                                <button 
+                                    onClick={() => setTooltipsEnabled(!tooltipsEnabled)}
+                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
+                                >
+                                    <HelpCircle size={16} className={tooltipsEnabled ? "text-green-400" : "text-gray-500"} /> 
+                                    {tooltipsEnabled ? "Disable Tooltips" : "Enable Tooltips"}
+                                </button>
+
                                 <button 
                                     onClick={handleClearChat}
                                     className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 text-red-400 flex items-center gap-2 transition"
@@ -359,40 +576,42 @@ const App = () => {
                     </div>
                 )}
                 {visibleMessages.map((m) => (
-                    <div key={m.id} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] p-4 rounded-2xl shadow-md ${
-                            m.source === 'system' ? 'bg-indigo-900/40 text-indigo-200 border border-indigo-500/20' :
-                            m.sender === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-100 rounded-tl-none'
-                        }`}>
-                            <p className="text-[10px] font-black uppercase tracking-widest opacity-30 mb-1">{m.sender === 'bot' ? 'Titan' : 'Architect'}</p>
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.text}</p>
-                        </div>
-                    </div>
+                    <MessageBubble key={m.id} m={m} onCopy={copyToClipboard} isOwn={m.sender === 'user'} />
                 ))}
                 <div ref={messagesEndRef} />
             </main>
 
             <footer className="bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700/50">
-                <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 mb-3">
-                    <Loader size={12} className={loading ? 'animate-spin' : ''} />
-                    <span>STATUS: {status.toUpperCase()}</span>
+                <div className="flex items-center gap-2 text-[10px] font-mono mb-3 uppercase tracking-widest transition-colors duration-500">
+                    <Loader size={12} className={statusType === 'working' ? 'animate-spin text-yellow-400' : 'text-gray-600'} />
+                    <span className={`font-bold ${getStatusColor()}`}>
+                        STATUS: {status}
+                    </span>
                 </div>
-                <form onSubmit={handleSend} className="flex gap-3">
-                    <label className="p-3 bg-gray-700 rounded-xl cursor-pointer hover:bg-gray-600 transition">
-                        <FileText size={20} className="text-gray-400" />
-                        <input type="file" className="hidden" onChange={e => setFile(e.target.files[0])} />
-                    </label>
-                    <input 
-                        type="text" 
+
+                <form onSubmit={handleSend} className="flex gap-3 items-end">
+                    <Tooltip text="Upload File to Core" enabled={tooltipsEnabled}>
+                        <label className="p-3 bg-gray-700 rounded-xl cursor-pointer hover:bg-gray-600 transition mb-1">
+                            <FileText size={20} className="text-gray-400" />
+                            <input type="file" className="hidden" onChange={e => setFile(e.target.files[0])} />
+                        </label>
+                    </Tooltip>
+                    
+                    <textarea 
                         value={input} 
                         onChange={e => setInput(e.target.value)}
-                        placeholder="Command or conversation..."
-                        className="flex-1 bg-gray-700 border-none rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 text-sm shadow-inner"
+                        onKeyDown={handleKeyDown}
+                        placeholder="Command or conversation... (Shift+Enter for new line)"
+                        className="flex-1 bg-gray-700 border-none rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 text-sm shadow-inner resize-none h-12 py-3 custom-scrollbar"
                         disabled={loading}
+                        rows={1}
                     />
-                    <button type="submit" disabled={loading} className="bg-indigo-600 p-3 rounded-xl hover:bg-indigo-500 disabled:opacity-50 transition shadow-lg">
-                        <Send size={20} />
-                    </button>
+                    
+                    <Tooltip text="Transmit Signal" enabled={tooltipsEnabled}>
+                        <button type="submit" disabled={loading} className="bg-indigo-600 p-3 rounded-xl hover:bg-indigo-500 disabled:opacity-50 transition shadow-lg mb-1">
+                            <Send size={20} />
+                        </button>
+                    </Tooltip>
                 </form>
             </footer>
         </div>
