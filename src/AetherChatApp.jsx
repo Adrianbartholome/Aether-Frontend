@@ -315,14 +315,16 @@ const App = () => {
             if (data.status === "SUCCESS") {
                 if (payload.action === 'delete') {
                     updateStatus(`DELETED ID: ${data.deleted_id}`, 'success');
-                    await saveMessage('bot', `[SYSTEM]: Lithograph ID ${data.deleted_id} has been deactivated.`, 'system');
-                } else {
+                    await saveMessage('bot', `[SYSTEM]: Lithograph ID ${data.deleted_id} deactivated.`, 'system');
+                } 
+                else if (payload.action === 'delete_range') {
+                    updateStatus(`PURGE COMPLETE: ${data.deleted_count} RECORDS`, 'success');
+                    await saveMessage('bot', `[SYSTEM]: Orbital Strike Successful. ${data.deleted_count} records deactivated in range.`, 'system');
+                }
+                else {
                     updateStatus(`SUCCESS: ${payload.commit_type ? payload.commit_type.toUpperCase() : 'COMMAND'}`, 'success');
                 }
                 return true;
-            } else {
-                updateStatus("SERVER FAILURE: " + (data.error || "Unknown"), 'error');
-                return false;
             }
         } catch (e) {
             updateStatus("NET ERROR: " + e.message, 'error');
@@ -392,18 +394,35 @@ const App = () => {
 
         const userInput = input.trim() || `[File Upload]: ${file?.name}`;
 
-        // --- 1. NEW: CHECK FOR DELETE COMMAND ---
-        // Regex to catch "delete id 123" or "purge 123"
+        // --- 1. CHECK FOR DELETE COMMANDS ---
+        
+        // A. RANGE DELETE: "purge range 100-200"
+        const rangeMatch = userInput.match(/(?:delete range|purge range)\s+(\d+)-(\d+)/i);
+        if (rangeMatch) {
+            const startId = parseInt(rangeMatch[1]);
+            const endId = parseInt(rangeMatch[2]);
+            
+            if (endId - startId > 500 && !window.confirm(`Are you sure you want to purge ${endId - startId} memories?`)) return;
+
+            setLoading(true);
+            await saveMessage('user', userInput);
+            // Calls the new range action
+            await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
+            setLoading(false);
+            setInput('');
+            return;
+        }
+
+        // B. SINGLE DELETE: "purge 123"
         const deleteMatch = userInput.match(/(?:delete id|purge)\s+(\d+)/i);
         if (deleteMatch) {
             const targetId = parseInt(deleteMatch[1]);
             setLoading(true);
             await saveMessage('user', userInput);
-            // Calls the new command executor with 'delete' action
             await executeTitanCommand({ action: 'delete', target_id: targetId });
             setLoading(false);
             setInput('');
-            return; // Stop here, don't send to Gemini
+            return; 
         }
 
         let manualCommitType = null;
