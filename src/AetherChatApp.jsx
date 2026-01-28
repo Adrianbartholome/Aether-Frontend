@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle } from 'lucide-react';
+import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
@@ -69,7 +69,6 @@ const chunkText = (text, size, overlap) => {
     let i = 0;
     while (i < text.length) {
         chunks.push(text.substring(i, i + size));
-        // Move forward by size MINUS overlap to create the bridge
         i += (size - overlap);
     }
     return chunks;
@@ -112,7 +111,6 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // URL Parsing Helper (Enhanced)
     const formatText = (text) => {
         const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
         return text.split(urlRegex).map((part, i) => {
@@ -120,10 +118,7 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
                 const href = part.startsWith('www.') ? `https://${part}` : part;
                 return (
                     <a 
-                        key={i} 
-                        href={href} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
+                        key={i} href={href} target="_blank" rel="noopener noreferrer" 
                         className="text-cyan-400 underline hover:text-cyan-300 transition-colors break-all"
                         onClick={(e) => e.stopPropagation()} 
                     >
@@ -138,19 +133,15 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
     const containerClass = isOwn ? 'justify-end' : 'justify-start';
     const bubbleClass = m.source === 'system' 
         ? 'bg-indigo-900/40 text-indigo-200 border border-indigo-500/20' 
-        : isOwn 
-            ? 'bg-blue-600 text-white rounded-tr-none' 
-            : 'bg-gray-700 text-gray-100 rounded-tl-none';
+        : isOwn ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-100 rounded-tl-none';
 
     return (
         <div className={`flex ${containerClass} group relative`}>
             <div className={`relative max-w-[85%] p-4 rounded-2xl shadow-md transition-all ${bubbleClass}`}>
-                
                 <div className="flex justify-between items-start mb-1 gap-2">
                     <p className="text-[10px] font-black uppercase tracking-widest opacity-30 select-none">
                         {m.sender === 'bot' ? 'Titan' : 'Architect'}
                     </p>
-                    
                     <div className="relative z-10" ref={menuRef}>
                         <button 
                             onClick={(e) => { e.stopPropagation(); setShowBubbleMenu(!showBubbleMenu); }}
@@ -158,7 +149,6 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
                         >
                             <MoreVertical size={14} />
                         </button>
-                        
                         {showBubbleMenu && (
                             <div className="absolute right-0 top-6 bg-gray-900 border border-gray-600 rounded shadow-xl z-50 w-32 overflow-hidden">
                                 <button onClick={() => { onCopy(m.text); setShowBubbleMenu(false); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-gray-800 text-gray-200 text-left">
@@ -171,23 +161,15 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
                         )}
                     </div>
                 </div>
-
                 {isCollapsed ? (
-                    <div className="h-6 flex items-center">
-                        <span className="text-xs italic opacity-40 select-none flex items-center gap-1">
-                            <Minimize2 size={10} /> Signal Collapsed
-                        </span>
-                    </div>
+                    <div className="h-6 flex items-center"><span className="text-xs italic opacity-40 select-none flex items-center gap-1"><Minimize2 size={10} /> Signal Collapsed</span></div>
                 ) : (
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap animate-fade-in">
-                        {formatText(m.text)}
-                    </p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap animate-fade-in">{formatText(m.text)}</p>
                 )}
             </div>
         </div>
     );
 };
-
 
 const App = () => {
     const [messages, setMessages] = useState([]);
@@ -195,10 +177,11 @@ const App = () => {
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
     
-    // Status State
+    // Status & Drag State
     const [status, setStatus] = useState(apiKey ? 'Systems Online' : 'API Key Missing');
     const [statusType, setStatusType] = useState('neutral'); 
     const [tooltipsEnabled, setTooltipsEnabled] = useState(true);
+    const [isDragging, setIsDragging] = useState(false); // New Drag State
 
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [user, setUser] = useState(null);
@@ -243,11 +226,8 @@ const App = () => {
         authRef.current = getAuth(app);
 
         const initAuth = async () => {
-            if (window.__initial_auth_token) {
-                await signInWithCustomToken(authRef.current, window.__initial_auth_token);
-            } else {
-                await signInAnonymously(authRef.current);
-            }
+            if (window.__initial_auth_token) await signInWithCustomToken(authRef.current, window.__initial_auth_token);
+            else await signInAnonymously(authRef.current);
         };
 
         initAuth();
@@ -276,6 +256,26 @@ const App = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, viewSince]);
 
+    // --- DRAG AND DROP HANDLERS ---
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            setFile(e.dataTransfer.files[0]);
+            updateStatus("FILE STAGED FOR UPLOAD", 'success');
+        }
+    };
+
     const saveMessage = async (sender, text, source) => {
         if (!dbRef.current || !user) return;
         await addDoc(collection(dbRef.current, messagesCollectionPathRef.current), {
@@ -301,7 +301,6 @@ const App = () => {
         setTimeout(() => updateStatus('Ready', 'neutral'), 2000);
     };
 
-    // --- TITAN COMMAND EXECUTOR (Handles Commit, Delete, Range Delete) ---
     const executeTitanCommand = async (payload) => {
         try {
             updateStatus(`TRANSMITTING: ${payload.action.toUpperCase()}...`, 'working');
@@ -335,7 +334,6 @@ const App = () => {
         }
     };
 
-    // --- NEW: UI HANDLER FOR RANGE PURGE BUTTON ---
     const handlePurgeRangeUI = async () => {
         const start = window.prompt("TITAN TARGETING: Enter Start ID");
         if (!start) return;
@@ -415,16 +413,11 @@ const App = () => {
 
         const userInput = input.trim() || `[File Upload]: ${file?.name}`;
 
-        // --- 1. CHECK FOR DELETE COMMANDS ---
-        
-        // A. RANGE DELETE: "purge range 100-200"
         const rangeMatch = userInput.match(/(?:delete range|purge range)\s+(\d+)-(\d+)/i);
         if (rangeMatch) {
             const startId = parseInt(rangeMatch[1]);
             const endId = parseInt(rangeMatch[2]);
-            
             if (endId - startId > 500 && !window.confirm(`Are you sure you want to purge ${endId - startId} memories?`)) return;
-
             setLoading(true);
             await saveMessage('user', userInput);
             await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
@@ -433,7 +426,6 @@ const App = () => {
             return;
         }
 
-        // B. SINGLE DELETE: "purge 123"
         const deleteMatch = userInput.match(/(?:delete id|purge)\s+(\d+)/i);
         if (deleteMatch) {
             const targetId = parseInt(deleteMatch[1]);
@@ -446,7 +438,6 @@ const App = () => {
         }
 
         let manualCommitType = null;
-
         const INTENT_MAP = {
             'summary': ['[COMMIT_SUMMARY]', 'commit summary', 'burn summary', 'save summary'],
             'full': ['[COMMIT_MEMORY]', 'commit memory', 'full burn', 'save chat', 'archive chat'],
@@ -462,15 +453,11 @@ const App = () => {
         setLoading(true);
         await saveMessage('user', userInput);
 
-        // --- FILE CHUNKING + MASTER COPY LOGIC ---
         if (file) {
             const reader = new FileReader();
             reader.onload = async (ev) => {
                 const fileContent = ev.target.result;
-
-                // 1. If explicit "Commit File" command
                 if (manualCommitType === 'file') {
-                    // Step A: CHUNK IT
                     const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
                     updateStatus(`CHUNKING FILE: ${chunks.length} BLOCKS...`, 'working');
                     
@@ -480,13 +467,10 @@ const App = () => {
                         const success = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: chunks[i] });
                         if (success) successCount++;
                     }
-                    
-                    // Step B: FULL COPY
                     if (successCount === chunks.length) {
                         updateStatus(`CHUNKS COMPLETE. ARCHIVING MASTER COPY...`, 'working');
                         const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
                         const fullSuccess = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: masterPayload });
-
                         if (fullSuccess) {
                             updateStatus(`FILE BURN COMPLETE (CHUNKS + MASTER)`, 'success');
                             await saveMessage('bot', `[SYSTEM]: File archived in ${chunks.length} precision blocks + 1 master copy.`, 'system');
@@ -496,18 +480,14 @@ const App = () => {
                     } else {
                         updateStatus("PARTIAL CHUNK FAILURE", 'error');
                     }
-                } 
-                // 2. Chat with file
-                else {
+                } else {
                     await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
                 }
-                
                 setFile(null);
                 setLoading(false);
             };
             reader.readAsText(file);
         } else {
-            // No file, normal text handling
             if (manualCommitType) {
                 updateStatus(`ARCHITECT OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
                 const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
@@ -540,13 +520,29 @@ const App = () => {
     };
 
     return (
-        <div className="flex flex-col h-screen bg-gray-900 text-gray-100 font-sans p-4 overflow-hidden">
+        /* DRAG AND DROP WRAPPER */
+        <div 
+            className="flex flex-col h-screen bg-gray-900 text-gray-100 font-sans p-4 overflow-hidden relative"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {/* OVERLAY FOR DRAG STATE */}
+            {isDragging && (
+                <div className="absolute inset-0 bg-indigo-900/80 z-50 flex items-center justify-center border-4 border-dashed border-indigo-400 m-4 rounded-xl backdrop-blur-sm pointer-events-none">
+                    <div className="text-center text-indigo-100 animate-bounce">
+                        <UploadCloud size={64} className="mx-auto mb-4" />
+                        <h2 className="text-2xl font-bold uppercase tracking-widest">Transmit Data</h2>
+                        <p className="text-sm opacity-75">Release to stage file for Titan Core</p>
+                    </div>
+                </div>
+            )}
+
             <header className="flex justify-between items-center bg-gray-800 p-4 rounded-xl shadow-lg mb-4 relative">
                 <h1 className="text-xl font-bold flex items-center gap-2 italic tracking-tighter">
                     <Zap className="text-indigo-400" /> {APP_TITLE}
                 </h1>
                 <div className="flex gap-2 items-center">
-                    
                     <Tooltip text="Force Save Full History to Core" enabled={tooltipsEnabled}>
                         <button onClick={() => executeTitanCommand({ action: 'commit', commit_type: 'full', memory_text: messages.map(m => m.text).join('\n') })} className="bg-indigo-600 hover:bg-indigo-500 p-2 rounded-lg text-xs flex items-center gap-1 transition shadow-md">
                             <Archive size={14} /> Anchor
@@ -555,53 +551,26 @@ const App = () => {
                     
                     <div className="relative" ref={menuRef}>
                         <Tooltip text="System Menu" enabled={tooltipsEnabled}>
-                            <button 
-                                onClick={() => setShowMenu(!showMenu)} 
-                                className="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition"
-                            >
+                            <button onClick={() => setShowMenu(!showMenu)} className="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition">
                                 <MoreVertical size={18} />
                             </button>
                         </Tooltip>
 
                         {showMenu && (
                             <div className="absolute right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
-                                {/* NEW: Purge Range Button */}
-                                <button 
-                                    onClick={handlePurgeRangeUI}
-                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 text-red-400 flex items-center gap-2 border-b border-gray-700 transition"
-                                >
+                                <button onClick={handlePurgeRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 text-red-400 flex items-center gap-2 border-b border-gray-700 transition">
                                     <Trash2 size={16} /> Purge Range
                                 </button>
-
-                                <button 
-                                    onClick={() => {
-                                        executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') });
-                                        setShowMenu(false);
-                                    }}
-                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
-                                >
+                                <button onClick={() => { executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') }); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition">
                                     <FileText size={16} className="text-yellow-400" /> Burn Summary
                                 </button>
-
-                                <button 
-                                    onClick={handleRestoreHistory}
-                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
-                                >
+                                <button onClick={handleRestoreHistory} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition">
                                     <History size={16} className="text-blue-400" /> Recall Full History
                                 </button>
-
-                                <button 
-                                    onClick={() => setTooltipsEnabled(!tooltipsEnabled)}
-                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
-                                >
-                                    <HelpCircle size={16} className={tooltipsEnabled ? "text-green-400" : "text-gray-500"} /> 
-                                    {tooltipsEnabled ? "Disable Tooltips" : "Enable Tooltips"}
+                                <button onClick={() => setTooltipsEnabled(!tooltipsEnabled)} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition">
+                                    <HelpCircle size={16} className={tooltipsEnabled ? "text-green-400" : "text-gray-500"} /> {tooltipsEnabled ? "Disable Tooltips" : "Enable Tooltips"}
                                 </button>
-
-                                <button 
-                                    onClick={handleClearChat}
-                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 text-red-400 flex items-center gap-2 transition"
-                                >
+                                <button onClick={handleClearChat} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 text-red-400 flex items-center gap-2 transition">
                                     <Trash2 size={16} /> Clear Interface
                                 </button>
                             </div>
@@ -632,9 +601,17 @@ const App = () => {
                 </div>
 
                 <form onSubmit={handleSend} className="flex gap-3 items-end">
+                    {/* VISUAL INDICATOR IF FILE IS SELECTED */}
+                    {file && (
+                        <div className="absolute bottom-20 left-4 bg-indigo-900/90 text-indigo-200 px-3 py-1 rounded-md text-xs flex items-center gap-2 border border-indigo-500 animate-fade-in-up">
+                            <FileText size={12} /> {file.name}
+                            <button onClick={() => setFile(null)} className="hover:text-white">x</button>
+                        </div>
+                    )}
+
                     <Tooltip text="Upload File to Core" enabled={tooltipsEnabled}>
-                        <label className="p-3 bg-gray-700 rounded-xl cursor-pointer hover:bg-gray-600 transition mb-1">
-                            <FileText size={20} className="text-gray-400" />
+                        <label className={`p-3 rounded-xl cursor-pointer transition mb-1 ${file ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}>
+                            <FileText size={20} />
                             <input type="file" className="hidden" onChange={e => setFile(e.target.files[0])} />
                         </label>
                     </Tooltip>
@@ -643,7 +620,7 @@ const App = () => {
                         value={input} 
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Command or conversation... (Shift+Enter for new line)"
+                        placeholder={file ? `Ready to transmit ${file.name}...` : "Command or conversation... (Shift+Enter for new line)"}
                         className="flex-1 bg-gray-700 border-none rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 text-sm shadow-inner resize-none h-12 py-3 custom-scrollbar"
                         disabled={loading}
                         rows={1}
