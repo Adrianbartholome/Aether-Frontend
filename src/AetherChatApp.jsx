@@ -7,7 +7,7 @@ import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap } f
 // --- CONFIGURATION ---
 const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
 const APP_TITLE = "Aether Titan Interface";
-const MODEL_NAME = 'gemini-2.5-flash'; // Unified model name
+const MODEL_NAME = 'gemini-2.5-flash';
 const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk"; // Your API Key
 
 // --- AETHER TITAN SYSTEM PROMPT ---
@@ -39,6 +39,7 @@ TONE & VOICE:
 - "Dad Joke" Protocol: Allowed.
 `;
 
+// Strict tags for AI detection
 const TRIGGERS = {
     'full': '[COMMIT_MEMORY]',
     'file': '[COMMIT_FILE]',
@@ -186,7 +187,7 @@ const App = () => {
                 return false;
             }
         } catch (e) {
-            setStatus("BURN FAILURE");
+            setStatus("BURN FAILURE: " + e.message);
             return false;
         }
     };
@@ -198,7 +199,7 @@ const App = () => {
         const payload = {
             contents: [{ parts: [{ text: `HISTORY:\n${history}\nCURRENT INPUT: ${query}` }] }],
             systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-            generationConfig: { temperature: 0.7 } // Slightly creative for "Resonance"
+            generationConfig: { temperature: 0.7 }
         };
 
         try {
@@ -248,10 +249,18 @@ const App = () => {
         const userInput = input.trim() || `[File Upload]: ${file?.name}`;
         let manualCommitType = null;
 
-        // --- ARCHITECT OVERRIDE ---
-        // Check if YOU typed a trigger command directly
-        for (const [type, tag] of Object.entries(TRIGGERS)) {
-            if (userInput.includes(tag)) manualCommitType = type;
+        // --- ARCHITECT OVERRIDE (FUZZY LOGIC) ---
+        // Allows "commit summary", "burn summary", or strict tags
+        const INTENT_MAP = {
+            'summary': ['[COMMIT_SUMMARY]', 'commit summary', 'burn summary', 'save summary'],
+            'full': ['[COMMIT_MEMORY]', 'commit memory', 'full burn', 'save chat', 'archive chat'],
+            'file': ['[COMMIT_FILE]']
+        };
+
+        for (const [type, triggers] of Object.entries(INTENT_MAP)) {
+            if (triggers.some(t => userInput.toLowerCase().includes(t.toLowerCase()))) {
+                manualCommitType = type;
+            }
         }
 
         setLoading(true);
@@ -260,11 +269,13 @@ const App = () => {
         // Execute Manual Burn if detected
         if (manualCommitType) {
             setStatus(`ARCHITECT OVERRIDE: ${manualCommitType.toUpperCase()} BURN...`);
+            // For summary burns manually triggered, we send the whole history and let the backend summarize
+            // For full burns, we send the whole history
             const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
             await commitToCore(historyText, manualCommitType);
         }
 
-        // Proceed to AI
+        // Proceed to AI (Even if burned, we usually want Aether to reply)
         if (file) {
             const reader = new FileReader();
             reader.onload = async (ev) => {
@@ -281,7 +292,6 @@ const App = () => {
         setInput('');
     };
 
-    // Filter messages for non-destructive clear
     const visibleMessages = messages.filter(m => {
         if (!m.timestamp) return true; 
         return m.timestamp.toMillis() > viewSince;
@@ -294,7 +304,7 @@ const App = () => {
                     <Zap className="text-indigo-400" /> {APP_TITLE}
                 </h1>
                 <div className="flex gap-2 items-center">
-                    {/* Manual Commit Button now defaults to Full Burn */}
+                    {/* Manual Commit Button (Full Burn) */}
                     <button onClick={() => commitToCore(messages.map(m => m.text).join('\n'), 'full')} className="bg-indigo-600 hover:bg-indigo-500 p-2 rounded-lg text-xs flex items-center gap-1 transition shadow-md">
                         <Archive size={14} /> Anchor
                     </button>
@@ -309,12 +319,26 @@ const App = () => {
 
                         {showMenu && (
                             <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                                {/* NEW: Burn Summary Button */}
+                                <button 
+                                    onClick={() => {
+                                        commitToCore(messages.map(m => `${m.sender}: ${m.text}`).join('\n'), 'summary');
+                                        setShowMenu(false);
+                                    }}
+                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
+                                >
+                                    <FileText size={16} className="text-yellow-400" /> Burn Summary
+                                </button>
+
+                                {/* Restore History */}
                                 <button 
                                     onClick={handleRestoreHistory}
                                     className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700 transition"
                                 >
                                     <History size={16} className="text-blue-400" /> Recall Full History
                                 </button>
+
+                                {/* Clear Chat */}
                                 <button 
                                     onClick={handleClearChat}
                                     className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 text-red-400 flex items-center gap-2 transition"
