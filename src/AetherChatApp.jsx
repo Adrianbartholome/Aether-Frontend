@@ -5,7 +5,7 @@ import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, o
 import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle } from 'lucide-react';
 
 // --- CONFIGURATION ---
-const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
+const WORKER_ENDPOINT = "[https://aether-immutable-core-84x6i.ondigitalocean.app/](https://aether-immutable-core-84x6i.ondigitalocean.app/)"; 
 const APP_TITLE = "Aether Titan Interface";
 const MODEL_NAME = 'gemini-2.5-flash';
 const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk"; 
@@ -301,7 +301,7 @@ const App = () => {
         setTimeout(() => updateStatus('Ready', 'neutral'), 2000);
     };
 
-    // --- REFACTORED: UNIFIED COMMAND EXECUTOR (Handles Commit AND Delete) ---
+    // --- TITAN COMMAND EXECUTOR (Handles Commit, Delete, Range Delete) ---
     const executeTitanCommand = async (payload) => {
         try {
             updateStatus(`TRANSMITTING: ${payload.action.toUpperCase()}...`, 'working');
@@ -325,11 +325,34 @@ const App = () => {
                     updateStatus(`SUCCESS: ${payload.commit_type ? payload.commit_type.toUpperCase() : 'COMMAND'}`, 'success');
                 }
                 return true;
+            } else {
+                updateStatus("SERVER FAILURE: " + (data.error || "Unknown"), 'error');
+                return false;
             }
         } catch (e) {
             updateStatus("NET ERROR: " + e.message, 'error');
             return false;
         }
+    };
+
+    // --- NEW: UI HANDLER FOR RANGE PURGE BUTTON ---
+    const handlePurgeRangeUI = async () => {
+        const start = window.prompt("TITAN TARGETING: Enter Start ID");
+        if (!start) return;
+        const end = window.prompt("TITAN TARGETING: Enter End ID");
+        if (!end) return;
+
+        const count = parseInt(end) - parseInt(start);
+        if (count > 50) {
+            if (!window.confirm(`WARNING: Orbital Strike targeting ${count} records. Confirm destruction?`)) return;
+        }
+        
+        await executeTitanCommand({ 
+            action: 'delete_range', 
+            target_id: parseInt(start), 
+            range_end: parseInt(end) 
+        });
+        setShowMenu(false);
     };
 
     const callGemini = async (query, context) => {
@@ -365,12 +388,10 @@ const App = () => {
                 let contentToCommit = "";
                 if (aiCommitType === 'full') {
                     contentToCommit = [...context, {sender: 'bot', text: cleanText}].map(m => `${m.sender}: ${m.text}`).join('\n');
-                    // Updated to use executeTitanCommand
                     await executeTitanCommand({ action: 'commit', commit_type: aiCommitType, memory_text: contentToCommit });
                     await saveMessage('bot', `[SYSTEM]: FULL BURN COMPLETE.`, 'system');
                 } else {
                     contentToCommit = cleanText;
-                    // Updated to use executeTitanCommand
                     await executeTitanCommand({ action: 'commit', commit_type: aiCommitType, memory_text: contentToCommit });
                     await saveMessage('bot', `[SYSTEM]: ${aiCommitType.toUpperCase()} archived.`, 'system');
                 }
@@ -406,7 +427,6 @@ const App = () => {
 
             setLoading(true);
             await saveMessage('user', userInput);
-            // Calls the new range action
             await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
             setLoading(false);
             setInput('');
@@ -450,25 +470,21 @@ const App = () => {
 
                 // 1. If explicit "Commit File" command
                 if (manualCommitType === 'file') {
-                    // Step A: CHUNK IT (Precision Access)
+                    // Step A: CHUNK IT
                     const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
                     updateStatus(`CHUNKING FILE: ${chunks.length} BLOCKS...`, 'working');
                     
                     let successCount = 0;
                     for (let i = 0; i < chunks.length; i++) {
                         updateStatus(`BURNING CHUNK ${i + 1}/${chunks.length}...`, 'working');
-                        // Updated to use executeTitanCommand
                         const success = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: chunks[i] });
                         if (success) successCount++;
                     }
                     
-                    // Step B: FULL COPY (Safe Keeping)
+                    // Step B: FULL COPY
                     if (successCount === chunks.length) {
                         updateStatus(`CHUNKS COMPLETE. ARCHIVING MASTER COPY...`, 'working');
-                        
-                        // We prepend a header so the AI knows it's the Master Archive
                         const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
-                        // Updated to use executeTitanCommand
                         const fullSuccess = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: masterPayload });
 
                         if (fullSuccess) {
@@ -481,7 +497,7 @@ const App = () => {
                         updateStatus("PARTIAL CHUNK FAILURE", 'error');
                     }
                 } 
-                // 2. Chat with file (Sends to Gemini)
+                // 2. Chat with file
                 else {
                     await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
                 }
@@ -495,7 +511,6 @@ const App = () => {
             if (manualCommitType) {
                 updateStatus(`ARCHITECT OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
                 const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
-                // Updated to use executeTitanCommand
                 await executeTitanCommand({ action: 'commit', commit_type: manualCommitType, memory_text: historyText });
             }
             await callGemini(userInput, messages);
@@ -550,6 +565,14 @@ const App = () => {
 
                         {showMenu && (
                             <div className="absolute right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                                {/* NEW: Purge Range Button */}
+                                <button 
+                                    onClick={handlePurgeRangeUI}
+                                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-700 text-red-400 flex items-center gap-2 border-b border-gray-700 transition"
+                                >
+                                    <Trash2 size={16} /> Purge Range
+                                </button>
+
                                 <button 
                                     onClick={() => {
                                         executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') });
