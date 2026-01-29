@@ -2,12 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders } from 'lucide-react';
+import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const BACKGROUND_IMAGE_URL = "/titan_bg.jpg"; 
 
-const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
+const WORKER_ENDPOINT = "[https://aether-immutable-core-84x6i.ondigitalocean.app/](https://aether-immutable-core-84x6i.ondigitalocean.app/)"; 
 const APP_TITLE = "Aether Titan Interface";
 const MODEL_NAME = 'gemini-2.5-flash';
 const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk"; 
@@ -269,7 +269,6 @@ const App = () => {
     // --- HELPER: CENTRALIZED FILE SELECTION ---
     const handleFileSelection = (selectedFile) => {
         setFile(selectedFile);
-        // Reset defaults when a new file is dropped
         setUploadMode('chat'); 
         setCoreScore(9);
         updateStatus("ARTIFACT DETECTED. AWAITING PROTOCOL.", 'working');
@@ -319,6 +318,14 @@ const App = () => {
                     updateStatus(`PURGE COMPLETE: ${data.deleted_count} SHARDS`, 'success');
                     await saveMessage('bot', `[SYSTEM]: Orbital Purge Successful. ${data.deleted_count} shards deactivated.`, 'system');
                 }
+                else if (payload.action === 'restore_range') {
+                    updateStatus(`RESTORE COMPLETE: ${data.restored_count} SHARDS`, 'success');
+                    await saveMessage('bot', `[SYSTEM]: Restoration Successful. ${data.restored_count} shards reactivated.`, 'system');
+                }
+                else if (payload.action === 'rehash') {
+                    updateStatus(`REHASH COMPLETE: ${data.rehashed_count} RECORDS`, 'success');
+                    await saveMessage('bot', `[SYSTEM]: CHAIN REWRITTEN. Trash purged: ${data.purged_count}. Chain length: ${data.rehashed_count}. Integrity verified.`, 'system');
+                }
                 else {
                     updateStatus(`SUCCESS: ${payload.commit_type ? payload.commit_type.toUpperCase() : 'COMMAND'}`, 'success');
                 }
@@ -333,6 +340,7 @@ const App = () => {
         }
     };
 
+    // --- 1. PURGE RANGE UI ---
     const handlePurgeRangeUI = async () => {
         const start = window.prompt("TITAN TARGETING: Start ID");
         if (!start) return;
@@ -348,6 +356,39 @@ const App = () => {
             action: 'delete_range', 
             target_id: parseInt(start), 
             range_end: parseInt(end) 
+        });
+        setShowMenu(false);
+    };
+
+    // --- 2. RESTORE RANGE UI (NEW) ---
+    const handleRestoreRangeUI = async () => {
+        const start = window.prompt("RESTORE PROTOCOL: Start ID");
+        if (!start) return;
+        const end = window.prompt("RESTORE PROTOCOL: End ID");
+        if (!end) return;
+        
+        await executeTitanCommand({ 
+            action: 'restore_range', 
+            target_id: parseInt(start), 
+            range_end: parseInt(end) 
+        });
+        setShowMenu(false);
+    };
+
+    // --- 3. REHASH PROTOCOL UI (NEW - 3 WARNINGS) ---
+    const handleRehashUI = async () => {
+        if (!window.confirm("WARNING 1/3: This will permanently obliterate all 'Deleted' records. They cannot be recovered.")) return;
+        if (!window.confirm("WARNING 2/3: This will rewrite the entire Cryptographic Chain from Genesis. This is a heavy operation.")) return;
+        
+        const confirmation = window.prompt("WARNING 3/3: Type 'BURN' to execute the Rehash Protocol.");
+        if (confirmation !== "BURN") return;
+
+        const reason = window.prompt("REQUIRED: Enter a reason for this history rewrite (for the log):");
+        if (!reason) return;
+
+        await executeTitanCommand({ 
+            action: 'rehash', 
+            note: reason
         });
         setShowMenu(false);
     };
@@ -606,9 +647,22 @@ const App = () => {
                             {showMenu && (
                                 <div className="absolute right-0 mt-2 w-64 bg-slate-900/95 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
                                     <div className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-black/20">Titan Protocols</div>
+                                    
+                                    {/* RESTORE RANGE */}
+                                    <button onClick={handleRestoreRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-400 flex items-center gap-3 border-b border-white/5 transition">
+                                        <RotateCcw size={16} /> Restore Range (Undo)
+                                    </button>
+
+                                    {/* PURGE RANGE */}
                                     <button onClick={handlePurgeRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-red-900/20 text-red-400 flex items-center gap-3 border-b border-white/5 transition">
                                         <Trash2 size={16} /> Orbital Purge (Range)
                                     </button>
+
+                                    {/* REHASH PROTOCOL */}
+                                    <button onClick={handleRehashUI} className="w-full text-left px-4 py-3 text-sm bg-red-950/30 hover:bg-red-900/50 text-red-500 flex items-center gap-3 border-b border-white/5 transition font-bold tracking-wide">
+                                        <RefreshCw size={16} /> REHASH PROTOCOL
+                                    </button>
+                                    
                                     <button onClick={() => { executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') }); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <FileText size={16} className="text-yellow-400" /> Generate Summary
                                     </button>
