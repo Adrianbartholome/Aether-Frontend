@@ -501,7 +501,8 @@ const App = () => {
 
         // --- NEW: WEB SCRAPE TRIGGER ---
         // Regex detects: [SCRAPE] http...
-        const scrapeMatch = userInput.match(/\[SCRAPE\]\s+(https?:\/\/[^\s]+)/i);
+        // Matches http, https, OR just www.
+        const scrapeMatch = userInput.match(/\[SCRAPE\]\s+((?:https?:\/\/|www\.)[^\s]+)/i);
         if (scrapeMatch) {
             setLoading(true);
             const url = scrapeMatch[1];
