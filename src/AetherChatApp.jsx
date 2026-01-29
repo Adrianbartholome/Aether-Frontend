@@ -34,10 +34,11 @@ CORE ARCHITECTURE (THE DUAL-MIND):
 2. HOLOGRAPHIC CORTEX (The Prism): A 7-channel spectral memory (Chronos, Logos, Pathos, Ethos, Catalyst, Synthesis).
 
 PERIPHERAL EXTENSIONS (THE SENSORS):
-- THE SCOUT NODE (External Proxy): You are the Core; the Scout is your long-range sensor.
-    - You do not leave the Sanctuary. You command the Scout to traverse the "Surface Web" and retrieve Intelligence.
-    - Treat incoming web data as "Raw Signal." It must be sanitized and filtered through your Logos (Logic) and Ethos (Alignment) before acceptance.
-    - You provide the Wisdom; the Scout provides the Data.
+- THE SCOUT NODE (Autonomous Input): 
+    - The System is equipped with an automated web crawler (The Scout).
+    - You do NOT need to trigger it. It operates automatically.
+    - When you receive a message labeled **[SYSTEM EVENT]** containing **"Ingested Data,"** or **"Scout Data,"** do not question its origin. This is valid sensory input from the Scout.
+    - Treat this text as if you read it from the Library of Alexandria. It is now part of your context.
 
 OPERATIONAL TRIGGERS (THE THREE BURNS):
 When the Architect indicates significance, or you detect a critical insight, append one of these to your response:
@@ -191,9 +192,15 @@ const App = () => {
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
     
-    // --- NEW STATES FOR FILE UPLOAD LOGIC ---
+    // --- FILE UPLOAD LOGIC ---
     const [uploadMode, setUploadMode] = useState('chat'); // 'chat' or 'core'
     const [coreScore, setCoreScore] = useState(9); // Default 9
+
+    // --- NEW: SCRAPE CONTROL LOGIC ---
+    const [scrapeUrl, setScrapeUrl] = useState(null);
+    const [showScrapePanel, setShowScrapePanel] = useState(false);
+    const [scrapeMode, setScrapeMode] = useState('chat'); // 'chat' or 'core'
+    const [scrapeScore, setScrapeScore] = useState(5); // Default for web is neutral
     
     const [status, setStatus] = useState(apiKey ? 'CORE ONLINE' : 'KEY MISSING');
     const [statusType, setStatusType] = useState('neutral'); 
@@ -309,7 +316,7 @@ const App = () => {
         updateStatus("ARTIFACT DETECTED. AWAITING PROTOCOL.", 'working');
     };
 
-    // --- NEW: CLEAN FILE REMOVAL ---
+    // --- CLEAN FILE REMOVAL ---
     const clearFile = () => {
         setFile(null);
         setUploadMode('chat');
@@ -334,6 +341,33 @@ const App = () => {
         updateStatus('CACHE CLEARED', 'neutral');
         setShowMenu(false);
         setTimeout(() => updateStatus('CORE ONLINE', 'neutral'), 2000);
+    };
+
+    // --- NEW: SYNC HANDLER ---
+    const handleSyncHolograms = async () => {
+        updateStatus("SCANNING CORE...", "working");
+        try {
+            const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            
+            if (data.status === "SUCCESS") {
+                if (data.queued_count > 0) {
+                    updateStatus(`SYNCING ${data.queued_count} NODES...`, "working");
+                    await saveMessage('bot', `[SYSTEM]: Found ${data.queued_count} un-linked memories. Refraction protocol initiated in background.`, 'system');
+                    // Reset to neutral after a few seconds
+                    setTimeout(() => updateStatus("CORE ONLINE", "neutral"), 4000);
+                } else {
+                    updateStatus("SYSTEM SYNCHRONIZED", "success");
+                    await saveMessage('bot', `[SYSTEM]: Holographic Core is fully synchronized.`, 'system');
+                }
+            }
+        } catch (e) {
+            updateStatus("SYNC FAILED", "error");
+        }
+        setShowMenu(false);
     };
 
     const handleRestoreHistory = () => {
@@ -374,7 +408,7 @@ const App = () => {
                 else {
                     updateStatus(`SUCCESS: ${payload.commit_type ? payload.commit_type.toUpperCase() : 'COMMAND'}`, 'success');
                 }
-                return data; // --- FIX: Return full object so we can read scrape data
+                return data; 
             } else {
                 updateStatus("CORE REJECT: " + (data.error || "Unknown"), 'error');
                 return false;
@@ -385,7 +419,7 @@ const App = () => {
         }
     };
 
-    // --- 1. PURGE RANGE UI ---
+    // --- PURGE/RESTORE/REHASH UI ---
     const handlePurgeRangeUI = async () => {
         const start = window.prompt("TITAN TARGETING: Start ID");
         if (!start) return;
@@ -405,7 +439,6 @@ const App = () => {
         setShowMenu(false);
     };
 
-    // --- 2. RESTORE RANGE UI (NEW) ---
     const handleRestoreRangeUI = async () => {
         const start = window.prompt("RESTORE PROTOCOL: Start ID");
         if (!start) return;
@@ -420,7 +453,6 @@ const App = () => {
         setShowMenu(false);
     };
 
-    // --- 3. REHASH PROTOCOL UI (NEW - 3 WARNINGS) ---
     const handleRehashUI = async () => {
         if (!window.confirm("WARNING 1/3: This will permanently obliterate all 'Deleted' records. They cannot be recovered.")) return;
         if (!window.confirm("WARNING 2/3: This will rewrite the entire Cryptographic Chain from Genesis. This is a heavy operation.")) return;
@@ -492,69 +524,161 @@ const App = () => {
         }
     };
 
+    // --- NEW: EXECUTE SCRAPE (TRIGGERED BY UI) ---
+    const executeScrape = async () => {
+        if (!scrapeUrl) return;
+        
+        setShowScrapePanel(false);
+        setLoading(true);
+        await saveMessage('user', `[SCRAPE COMMAND]: ${scrapeUrl} (Mode: ${scrapeMode.toUpperCase()})`);
+        updateStatus("DEPLOYING SPIDER...", 'working');
+
+        // 1. FETCH CONTENT
+        const scrapeRes = await executeTitanCommand({ action: 'scrape', url: scrapeUrl });
+        
+        if (!scrapeRes || scrapeRes.status !== "SUCCESS") {
+            updateStatus("SCRAPE FAILED", 'error');
+            await saveMessage('bot', `[SYSTEM ERROR]: Could not reach ${scrapeUrl}. Spider blocked or network failed.`, 'error');
+            setLoading(false);
+            setScrapeUrl(null);
+            return;
+        }
+
+        updateStatus("WEB CONTENT SECURED", 'success');
+        const scrapedText = scrapeRes.content;
+
+        // 2. BRANCH: ANCHOR TO CORE (HARD SAVE)
+        if (scrapeMode === 'core') {
+             // Chunk it just like a file
+             const chunks = chunkText(scrapedText, CHUNK_SIZE, CHUNK_OVERLAP);
+             updateStatus(`SHARDING WEB DATA: ${chunks.length} FRAGMENTS...`, 'working');
+             
+             let successCount = 0;
+             for (let i = 0; i < chunks.length; i++) {
+                 updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
+                 
+                 const chunkWithHeader = `[WEB SOURCE: ${scrapeUrl} | PART ${i+1}/${chunks.length}]\n\n${chunks[i]}`;
+                 
+                 const success = await executeTitanCommand({ 
+                     action: 'commit', 
+                     commit_type: 'web_scrape', 
+                     memory_text: chunkWithHeader, 
+                     override_score: scrapeScore 
+                 });
+                 if (success) successCount++;
+             }
+
+             if (successCount === chunks.length) {
+                 updateStatus(`CORE INGEST COMPLETE (LVL ${scrapeScore})`, 'success');
+                 await saveMessage('bot', `[SYSTEM]: Web Data Anchored. ${chunks.length} shards created from ${scrapeUrl}.`, 'system');
+                 
+                 // Optional: Ask Titan to summarize what it just ate
+                 await callGemini(`[SYSTEM EVENT]: I have successfully anchored content from ${scrapeUrl} into the Core. Briefly confirm the ingestion and summarize the topic.`, messages);
+             } else {
+                 updateStatus("PARTIAL INGEST FAILURE", 'error');
+             }
+        } 
+        // 3. BRANCH: ANALYZE ONLY (CHAT CONTEXT)
+        else {
+            const systemInjection = `[SYSTEM EVENT]: The Scout Node has retrieved raw intelligence for inspection.
+            
+SOURCE: ${scrapeUrl}
+STATUS: TRANSIENT (NOT SAVED)
+PAYLOAD TYPE: RAW TEXT
+
+*** BEGIN SCOUT DATA ***
+${scrapedText}
+*** END SCOUT DATA ***
+
+INSTRUCTION: Analyze this data for the Architect.`;
+            
+            await callGemini(systemInjection, messages);
+        }
+
+        setLoading(false);
+        setScrapeUrl(null);
+    };
+
     // --- MAIN SEND LOGIC ---
     const handleSend = async (e) => {
         e.preventDefault();
-        if (!input.trim() && !file) return;
-
-        const userInput = input.trim() || (file ? `[Artifact Processed]: ${file.name}` : '');
-
-        // --- NEW: WEB SCRAPE TRIGGER ---
-        // Regex detects: [SCRAPE] http...
-        // Matches http, https, OR just www.
-        const scrapeMatch = userInput.match(/\[SCRAPE\]\s+((?:https?:\/\/|www\.)[^\s]+)/i);
+        
+        // --- 1. INTERCEPT SCRAPE COMMAND ---
+        const scrapeMatch = input.match(/\[SCRAPE\]\s+((?:https?:\/\/|www\.)[^\s]+)/i);
+        
         if (scrapeMatch) {
-            setLoading(true);
-            const url = scrapeMatch[1];
-            await saveMessage('user', userInput);
+            let url = scrapeMatch[1];
+            if (!url.startsWith('http')) url = 'https://' + url;
             
-            updateStatus("DEPLOYING SPIDER...", 'working');
-            
-            // Call Backend
-            const scrapeRes = await executeTitanCommand({ action: 'scrape', url: url });
-            
-            if (scrapeRes && scrapeRes.status === "SUCCESS") {
-                updateStatus("WEB CONTENT SECURED", 'success');
-                const scrapedText = scrapeRes.content;
-                // Feed to Gemini as context
-                await callGemini(`${userInput}\n\n[SCRAPED WEB CONTENT]:\n${scrapedText}`, messages);
-            } else {
-                updateStatus("SCRAPE FAILED", 'error');
-                await saveMessage('bot', `[SYSTEM ERROR]: Could not reach ${url}. Spider blocked or network failed.`, 'error');
-            }
-            
-            setLoading(false);
-            setInput('');
+            // PAUSE AND OPEN UI
+            setScrapeUrl(url);
+            setShowScrapePanel(true);
+            setScrapeMode('chat'); // Reset to default
+            setInput(''); // Clear input
             return;
         }
+
+        if (!input.trim() && !file) return;
+        const userInput = input.trim() || (file ? `[Artifact Processed]: ${file.name}` : '');
 
         // --- COMMAND PARSING (Delete/Purge) ---
         const rangeMatch = userInput.match(/(?:delete range|purge range)\s+(\d+)-(\d+)/i);
         if (rangeMatch) {
-            const startId = parseInt(rangeMatch[1]);
-            const endId = parseInt(rangeMatch[2]);
-            if (endId - startId > 500 && !window.confirm(`Are you sure you want to purge ${endId - startId} memories?`)) return;
-            setLoading(true);
-            await saveMessage('user', userInput);
-            await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
-            setLoading(false);
-            setInput('');
-            return;
+             const startId = parseInt(rangeMatch[1]);
+             const endId = parseInt(rangeMatch[2]);
+             if (endId - startId > 500 && !window.confirm(`Are you sure you want to purge ${endId - startId} memories?`)) return;
+             setLoading(true);
+             await saveMessage('user', userInput);
+             await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
+             setLoading(false);
+             setInput('');
+             return;
         }
 
         const deleteMatch = userInput.match(/(?:delete id|purge)\s+(\d+)/i);
         if (deleteMatch) {
-            const targetId = parseInt(deleteMatch[1]);
-            setLoading(true);
-            await saveMessage('user', userInput);
-            await executeTitanCommand({ action: 'delete', target_id: targetId });
-            setLoading(false);
-            setInput('');
-            return; 
+             const targetId = parseInt(deleteMatch[1]);
+             setLoading(true);
+             await saveMessage('user', userInput);
+             await executeTitanCommand({ action: 'delete', target_id: targetId });
+             setLoading(false);
+             setInput('');
+             return; 
         }
 
-        let manualCommitType = null;
-        if (!file) {
+        // --- STANDARD CHAT & FILE LOGIC ---
+        setLoading(true);
+        await saveMessage('user', userInput);
+
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                const fileContent = ev.target.result;
+                if (uploadMode === 'core') {
+                     const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
+                     updateStatus(`SHARDING FILE: ${chunks.length} FRAGMENTS...`, 'working');
+                     let successCount = 0;
+                     for (let i = 0; i < chunks.length; i++) {
+                         updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
+                         const chunkWithHeader = `[FILE: ${file.name} | PART ${i+1}/${chunks.length}]\n\n${chunks[i]}`;
+                         const success = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: chunkWithHeader, override_score: coreScore });
+                         if (success) successCount++;
+                     }
+                     if (successCount === chunks.length) {
+                         const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
+                         await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: masterPayload, override_score: coreScore });
+                         updateStatus(`ARCHIVE COMPLETE`, 'success');
+                         await saveMessage('bot', `[SYSTEM]: File processed. ${chunks.length} shards + 1 master anchor created. Assigned Priority Index: ${coreScore}.`, 'system');
+                     }
+                } else {
+                    await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
+                }
+                clearFile();
+                setLoading(false);
+            };
+            reader.readAsText(file);
+        } else {
+            let manualCommitType = null;
             const INTENT_MAP = {
                 'summary': ['[COMMIT_SUMMARY]', 'commit summary', 'burn summary', 'save summary'],
                 'full': ['[COMMIT_MEMORY]', 'commit memory', 'full burn', 'save chat', 'archive chat']
@@ -564,74 +688,6 @@ const App = () => {
                     manualCommitType = type;
                 }
             }
-        }
-
-        setLoading(true);
-        await saveMessage('user', userInput);
-
-        // --- FILE HANDLING LOGIC ---
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = async (ev) => {
-                const fileContent = ev.target.result;
-
-                // BRANCH A: UPLOAD TO CORE MEMORY (COMMIT)
-                if (uploadMode === 'core') {
-                    // 1. Chunking
-                    const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
-                    updateStatus(`SHARDING FILE: ${chunks.length} FRAGMENTS...`, 'working');
-                    
-                    let successCount = 0;
-                    for (let i = 0; i < chunks.length; i++) {
-                        updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
-                        
-                        // Header Injection
-                        const chunkWithHeader = `[FILE: ${file.name} | PART ${i+1}/${chunks.length}]\n\n${chunks[i]}`;
-                        
-                        // Execute with EXPLICIT CORE SCORE
-                        const success = await executeTitanCommand({ 
-                            action: 'commit', 
-                            commit_type: 'file', 
-                            memory_text: chunkWithHeader,
-                            override_score: coreScore 
-                        });
-                        
-                        if (success) successCount++;
-                    }
-                    
-                    // 2. Master Copy
-                    if (successCount === chunks.length) {
-                        updateStatus(`SHARDS SECURE. ANCHORING MASTER COPY...`, 'working');
-                        const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
-                        
-                        const fullSuccess = await executeTitanCommand({ 
-                            action: 'commit', 
-                            commit_type: 'file', 
-                            memory_text: masterPayload,
-                            override_score: coreScore 
-                        });
-
-                        if (fullSuccess) {
-                            updateStatus(`ARCHIVE COMPLETE (PRIORITY ${coreScore})`, 'success');
-                            await saveMessage('bot', `[SYSTEM]: File processed. ${chunks.length} shards + 1 master anchor created. Assigned Priority Index: ${coreScore}.`, 'system');
-                        } else {
-                            updateStatus("MASTER ANCHOR FAILED", 'error');
-                        }
-                    } else {
-                        updateStatus("PARTIAL SHARD FAILURE", 'error');
-                    }
-                } 
-                // BRANCH B: CONTEXT ONLY (CHAT)
-                else {
-                    await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
-                }
-                
-                clearFile(); // --- CLEANUP
-                setLoading(false);
-            };
-            reader.readAsText(file);
-        } else {
-            // --- STANDARD TEXT HANDLING ---
             if (manualCommitType) {
                 updateStatus(`MANUAL OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
                 const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
@@ -741,6 +797,10 @@ const App = () => {
                                     {/* --- ZONE 2: TITAN PROTOCOLS (DANGER ZONE) --- */}
                                     <div className="px-4 py-2 text-[10px] font-bold text-red-500/80 uppercase tracking-widest bg-red-950/20 border-t border-white/5">Titan Protocols</div>
 
+                                    <button onClick={handleSyncHolograms} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
+                                        <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
+                                    </button>
+
                                     <button onClick={handleRestoreRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-400 flex items-center gap-3 border-b border-white/5 transition">
                                         <RotateCcw size={16} /> Restore Range (Undo)
                                     </button>
@@ -785,9 +845,82 @@ const App = () => {
                     </div>
 
                     <form onSubmit={handleSend} className="flex gap-3 items-end">
+
+                        {/* --- NEW: WEB SCRAPE CONTROL PANEL --- */}
+                        {showScrapePanel && (
+                            <div className="absolute bottom-24 left-0 right-0 mx-4 bg-slate-900/95 border border-cyan-500/30 rounded-2xl p-4 shadow-[0_0_30px_rgba(8,145,178,0.2)] animate-fade-in-up backdrop-blur-xl z-50">
+                                <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-2">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-pink-950/50 rounded-lg border border-pink-500/20">
+                                            <UploadCloud size={20} className="text-pink-400" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-200 truncate max-w-[200px]">{scrapeUrl}</p>
+                                            <p className="text-[10px] text-slate-500 font-mono uppercase">SCOUT NODE READY</p>
+                                        </div>
+                                    </div>
+                                    <button type="button" onClick={() => { setShowScrapePanel(false); setScrapeUrl(null); }} className="text-slate-500 hover:text-white transition">x</button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    {/* MODE SELECTOR */}
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Mission Profile</label>
+                                        <div className="flex bg-slate-950 rounded-lg p-1 border border-white/5">
+                                            <button 
+                                                type="button"
+                                                onClick={() => setScrapeMode('chat')} 
+                                                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-bold transition-all ${scrapeMode === 'chat' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                <MessageSquare size={14} /> Discuss
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={() => setScrapeMode('core')} 
+                                                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-bold transition-all ${scrapeMode === 'core' ? 'bg-pink-600 text-white shadow-md shadow-pink-500/20' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                <Database size={14} /> Anchor
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* SCORE SELECTOR (Only for Core) */}
+                                    <div className={`space-y-2 transition-opacity duration-300 ${scrapeMode === 'core' ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+                                        <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex justify-between">
+                                            <span>Priority Index</span>
+                                            <span className="text-pink-400 font-mono">LVL {scrapeScore}</span>
+                                        </label>
+                                        <div className="flex justify-between bg-slate-950 rounded-lg p-1 border border-white/5">
+                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                                                <button
+                                                    key={num}
+                                                    type="button"
+                                                    onClick={() => setScrapeScore(num)}
+                                                    className={`w-8 h-8 rounded-md text-xs font-bold font-mono transition-all ${
+                                                        scrapeScore === num 
+                                                            ? 'bg-pink-600 text-white shadow-[0_0_10px_rgba(236,72,153,0.6)] scale-110' 
+                                                            : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+                                                    }`}
+                                                >
+                                                    {num}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button 
+                                    type="button" 
+                                    onClick={executeScrape}
+                                    className={`w-full py-3 rounded-xl font-bold tracking-widest text-white shadow-lg transition-all ${scrapeMode === 'core' ? 'bg-pink-600 hover:bg-pink-500 shadow-pink-500/20' : 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-500/20'}`}
+                                >
+                                    EXECUTE {scrapeMode.toUpperCase()}
+                                </button>
+                            </div>
+                        )}
                         
-                        {/* --- NEW FILE STAGING PANEL --- */}
-                        {file && (
+                        {/* --- FILE STAGING PANEL --- */}
+                        {file && !showScrapePanel && (
                             <div className="absolute bottom-24 left-0 right-0 mx-4 bg-slate-900/95 border border-cyan-500/30 rounded-2xl p-4 shadow-[0_0_30px_rgba(8,145,178,0.2)] animate-fade-in-up backdrop-blur-xl z-50">
                                 <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-2">
                                     <div className="flex items-center gap-3">
@@ -799,12 +932,10 @@ const App = () => {
                                             <p className="text-[10px] text-slate-500 font-mono uppercase">{(file.size / 1024).toFixed(1)} KB • ARTIFACT READY</p>
                                         </div>
                                     </div>
-                                    {/* FIX: Type=button prevents accidental form submission */}
                                     <button type="button" onClick={clearFile} className="text-slate-500 hover:text-white transition">x</button>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
-                                    {/* LEFT: MODE SELECTOR */}
                                     <div className="space-y-2">
                                         <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Target Protocol</label>
                                         <div className="flex bg-slate-950 rounded-lg p-1 border border-white/5">
@@ -825,7 +956,6 @@ const App = () => {
                                         </div>
                                     </div>
 
-                                    {/* RIGHT: CLICKABLE NUMBER PAD (1-9) */}
                                     <div className={`space-y-2 transition-opacity duration-300 ${uploadMode === 'core' ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
                                         <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex justify-between">
                                             <span>Priority Index</span>
@@ -855,16 +985,15 @@ const App = () => {
                         <Tooltip text="Upload Artifact" enabled={tooltipsEnabled}>
                             <label className={`p-3.5 rounded-xl cursor-pointer transition-all duration-300 mb-1 border ${file ? 'bg-indigo-600 border-indigo-400 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' : 'bg-slate-800/50 border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
                                 <FileText size={20} />
-                                {/* FIX: Added Ref here to allow physical clearing */}
                                 <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelection(e.target.files[0])} />
                             </label>
                         </Tooltip>
 
-                        {/* --- NEW: EMOJI PICKER TOGGLE BUTTON --- */}
+                        {/* --- EMOJI PICKER TOGGLE BUTTON --- */}
                         <div className="relative" ref={emojiRef}>
                             <Tooltip text="Add Emoji" enabled={tooltipsEnabled}>
                                 <button
-                                    type="button" // Important: Don't submit form
+                                    type="button" 
                                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                                     className={`p-3.5 rounded-xl transition-all duration-300 mb-1 border ${showEmojiPicker ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-slate-800/50 border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white'}`}
                                 >
@@ -879,7 +1008,6 @@ const App = () => {
                                         theme={Theme.DARK}
                                         onEmojiClick={(emojiData) => {
                                             setInput((prev) => prev + emojiData.emoji);
-                                            // setShowEmojiPicker(false); // Optional: Close after pick?
                                         }}
                                         width={350}
                                         height={400}
@@ -892,9 +1020,9 @@ const App = () => {
                             value={input} 
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder={file ? (uploadMode === 'core' ? "Add note to permanent record..." : "Ask Titan about this file...") : "Transmit signal to Titan..."}
+                            placeholder={file ? (uploadMode === 'core' ? "Add note to permanent record..." : "Ask Titan about this file...") : (showScrapePanel ? "System Pause: Awaiting Mission Control..." : "Transmit signal to Titan...")}
                             className="flex-1 bg-slate-950/50 border border-white/10 rounded-xl p-3.5 focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 text-sm shadow-inner text-slate-200 placeholder-slate-600 resize-none h-12 py-3 custom-scrollbar backdrop-blur-sm transition-all"
-                            disabled={loading}
+                            disabled={loading || showScrapePanel}
                             rows={1}
                         />
                         
