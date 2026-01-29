@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon } from 'lucide-react';
+import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const BACKGROUND_IMAGE_URL = "/titan_bg.jpg"; 
@@ -162,6 +162,10 @@ const App = () => {
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
     
+    // --- NEW STATES FOR FILE UPLOAD LOGIC ---
+    const [uploadMode, setUploadMode] = useState('chat'); // 'chat' or 'core'
+    const [coreScore, setCoreScore] = useState(9); // Default 9
+    
     const [status, setStatus] = useState(apiKey ? 'CORE ONLINE' : 'KEY MISSING');
     const [statusType, setStatusType] = useState('neutral'); 
     const [tooltipsEnabled, setTooltipsEnabled] = useState(true);
@@ -187,14 +191,11 @@ const App = () => {
         setStatusType(type);
     };
 
-    // --- FIX 1: PAINT THE BODY (The Ultimate Safety Net) ---
+    // --- BODY PAINT ---
     useEffect(() => {
-        // This paints the actual browser window dark blue.
-        // Even if the React app has a gap, the user sees dark blue, not white.
         document.body.style.backgroundColor = "#0f172a"; 
         document.body.style.margin = "0";
         document.body.style.overflow = "hidden";
-        
         return () => {
             document.body.style.backgroundColor = "";
             document.body.style.overflow = "";
@@ -261,9 +262,17 @@ const App = () => {
         e.preventDefault();
         setIsDragging(false);
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            setFile(e.dataTransfer.files[0]);
-            updateStatus("ARTIFACT STAGED FOR UPLOAD", 'success');
+            handleFileSelection(e.dataTransfer.files[0]);
         }
+    };
+
+    // --- HELPER: CENTRALIZED FILE SELECTION ---
+    const handleFileSelection = (selectedFile) => {
+        setFile(selectedFile);
+        // Reset defaults when a new file is dropped
+        setUploadMode('chat'); 
+        setCoreScore(9);
+        updateStatus("ARTIFACT DETECTED. AWAITING PROTOCOL.", 'working');
     };
 
     const saveMessage = async (sender, text, source) => {
@@ -397,12 +406,14 @@ const App = () => {
         }
     };
 
+    // --- MAIN SEND LOGIC ---
     const handleSend = async (e) => {
         e.preventDefault();
         if (!input.trim() && !file) return;
 
-        const userInput = input.trim() || `[File Upload]: ${file?.name}`;
+        const userInput = input.trim() || (file ? `[Artifact Processed]: ${file.name}` : '');
 
+        // --- COMMAND PARSING (Delete/Purge) ---
         const rangeMatch = userInput.match(/(?:delete range|purge range)\s+(\d+)-(\d+)/i);
         if (rangeMatch) {
             const startId = parseInt(rangeMatch[1]);
@@ -428,45 +439,52 @@ const App = () => {
         }
 
         let manualCommitType = null;
-        const INTENT_MAP = {
-            'summary': ['[COMMIT_SUMMARY]', 'commit summary', 'burn summary', 'save summary'],
-            'full': ['[COMMIT_MEMORY]', 'commit memory', 'full burn', 'save chat', 'archive chat'],
-            'file': ['[COMMIT_FILE]', 'commit file', 'burn file', 'save file'] 
-        };
-
-        for (const [type, triggers] of Object.entries(INTENT_MAP)) {
-            if (triggers.some(t => userInput.toLowerCase().includes(t.toLowerCase()))) {
-                manualCommitType = type;
+        if (!file) {
+            const INTENT_MAP = {
+                'summary': ['[COMMIT_SUMMARY]', 'commit summary', 'burn summary', 'save summary'],
+                'full': ['[COMMIT_MEMORY]', 'commit memory', 'full burn', 'save chat', 'archive chat']
+            };
+            for (const [type, triggers] of Object.entries(INTENT_MAP)) {
+                if (triggers.some(t => userInput.toLowerCase().includes(t.toLowerCase()))) {
+                    manualCommitType = type;
+                }
             }
         }
 
         setLoading(true);
         await saveMessage('user', userInput);
 
+        // --- FILE HANDLING LOGIC ---
         if (file) {
             const reader = new FileReader();
             reader.onload = async (ev) => {
                 const fileContent = ev.target.result;
 
-                if (manualCommitType === 'file') {
+                // BRANCH A: UPLOAD TO CORE MEMORY (COMMIT)
+                if (uploadMode === 'core') {
+                    // 1. Chunking
                     const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
                     updateStatus(`SHARDING FILE: ${chunks.length} FRAGMENTS...`, 'working');
                     
                     let successCount = 0;
                     for (let i = 0; i < chunks.length; i++) {
                         updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
+                        
+                        // Header Injection
                         const chunkWithHeader = `[FILE: ${file.name} | PART ${i+1}/${chunks.length}]\n\n${chunks[i]}`;
                         
+                        // Execute with EXPLICIT CORE SCORE
                         const success = await executeTitanCommand({ 
                             action: 'commit', 
                             commit_type: 'file', 
                             memory_text: chunkWithHeader,
-                            override_score: 9 
+                            override_score: coreScore 
                         });
                         
                         if (success) successCount++;
                     }
                     
+                    // 2. Master Copy
                     if (successCount === chunks.length) {
                         updateStatus(`SHARDS SECURE. ANCHORING MASTER COPY...`, 'working');
                         const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
@@ -475,26 +493,30 @@ const App = () => {
                             action: 'commit', 
                             commit_type: 'file', 
                             memory_text: masterPayload,
-                            override_score: 9 
+                            override_score: coreScore 
                         });
 
                         if (fullSuccess) {
-                            updateStatus(`ARCHIVE COMPLETE (SHARDS + MASTER)`, 'success');
-                            await saveMessage('bot', `[SYSTEM]: File processed. ${chunks.length} shards + 1 master anchor created. Priority Index 9 confirmed.`, 'system');
+                            updateStatus(`ARCHIVE COMPLETE (PRIORITY ${coreScore})`, 'success');
+                            await saveMessage('bot', `[SYSTEM]: File processed. ${chunks.length} shards + 1 master anchor created. Assigned Priority Index: ${coreScore}.`, 'system');
                         } else {
                             updateStatus("MASTER ANCHOR FAILED", 'error');
                         }
                     } else {
                         updateStatus("PARTIAL SHARD FAILURE", 'error');
                     }
-                } else {
+                } 
+                // BRANCH B: CONTEXT ONLY (CHAT)
+                else {
                     await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
                 }
+                
                 setFile(null);
                 setLoading(false);
             };
             reader.readAsText(file);
         } else {
+            // --- STANDARD TEXT HANDLING ---
             if (manualCommitType) {
                 updateStatus(`MANUAL OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
                 const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
@@ -527,14 +549,12 @@ const App = () => {
     };
 
     return (
-        /* FIX 2: CONTAINER set to fixed with no background color to avoid masking */
         <div 
             className="fixed inset-0 w-full h-full overflow-hidden font-sans"
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            {/* FIX 3: BACKGROUND LAYER EXTENDS 120% (h-[120vh]) TO COVER GAPS */}
             <div 
                 className="fixed top-0 left-0 w-full h-[120vh] -z-50 bg-slate-900 bg-cover bg-center transition-transform duration-[60s] ease-in-out scale-110 animate-drift"
                 style={{ 
@@ -542,8 +562,6 @@ const App = () => {
                     animation: 'drift 60s infinite alternate ease-in-out'
                 }}
             />
-
-            {/* LATTICE OVERLAY */}
             <div 
                 className="fixed top-0 left-0 w-full h-[120vh] -z-40 opacity-20 pointer-events-none"
                 style={{
@@ -551,11 +569,8 @@ const App = () => {
                     backgroundSize: '40px 40px'
                 }}
             />
-
-            {/* SEA OF N GRADIENT */}
             <div className="fixed top-0 left-0 w-full h-[120vh] -z-30 bg-gradient-to-t from-slate-950 via-slate-900/80 to-indigo-950/60 pointer-events-none" />
 
-            {/* DRAG DROP OVERLAY */}
             {isDragging && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-indigo-950/80 backdrop-blur-md border-4 border-dashed border-cyan-400/50 m-6 rounded-3xl animate-pulse">
                     <div className="text-center text-cyan-200">
@@ -566,54 +581,44 @@ const App = () => {
                 </div>
             )}
 
-            {/* MAIN CONTENT */}
             <div className="relative z-10 flex flex-col h-full p-6">
                 
-                {/* HEADER */}
-                <header className="flex justify-between items-center bg-slate-900/40 backdrop-blur-md border-b border-white/10 p-4 rounded-xl shadow-2xl mb-6">
+                {/* --- HEADER (Z-30 FIXED) --- */}
+                <header className="flex justify-between items-center bg-slate-900/40 backdrop-blur-md border-b border-white/10 p-4 rounded-xl shadow-2xl mb-6 relative z-30">
                     <h1 className="text-xl font-bold flex items-center gap-3 italic tracking-tighter text-slate-100">
                         <Zap className="text-cyan-400 fill-cyan-400/20" /> 
                         <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-slate-400">
                             {APP_TITLE}
                         </span>
                     </h1>
-                    
                     <div className="flex gap-2 items-center">
                         <Tooltip text="Manual Core Anchor" enabled={tooltipsEnabled}>
                             <button onClick={() => executeTitanCommand({ action: 'commit', commit_type: 'full', memory_text: messages.map(m => m.text).join('\n') })} className="bg-indigo-600/80 hover:bg-indigo-500 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] p-2 rounded-lg text-xs flex items-center gap-1 transition-all border border-indigo-400/30 text-white">
                                 <Archive size={14} /> Anchor
                             </button>
                         </Tooltip>
-                        
                         <div className="relative" ref={menuRef}>
                             <Tooltip text="System Access" enabled={tooltipsEnabled}>
                                 <button onClick={() => setShowMenu(!showMenu)} className="bg-slate-800/50 hover:bg-slate-700/50 p-2 rounded-lg transition border border-white/10 text-slate-300 hover:text-white">
                                     <MoreVertical size={18} />
                                 </button>
                             </Tooltip>
-
-                            {/* DROPDOWN MENU */}
                             {showMenu && (
                                 <div className="absolute right-0 mt-2 w-64 bg-slate-900/95 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
                                     <div className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-black/20">Titan Protocols</div>
-                                    
                                     <button onClick={handlePurgeRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-red-900/20 text-red-400 flex items-center gap-3 border-b border-white/5 transition">
                                         <Trash2 size={16} /> Orbital Purge (Range)
                                     </button>
-                                    
                                     <button onClick={() => { executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') }); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <FileText size={16} className="text-yellow-400" /> Generate Summary
                                     </button>
-
                                     <button onClick={handleRestoreHistory} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <History size={16} className="text-cyan-400" /> Recall Sequence
                                     </button>
-
                                     <button onClick={() => setTooltipsEnabled(!tooltipsEnabled)} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <HelpCircle size={16} className={tooltipsEnabled ? "text-emerald-400" : "text-slate-500"} /> 
                                         {tooltipsEnabled ? "HUD: Active" : "HUD: Disabled"}
                                     </button>
-
                                     <button onClick={handleClearChat} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 text-slate-400 flex items-center gap-3 transition">
                                         <Minimize2 size={16} /> Clear Local Cache
                                     </button>
@@ -623,7 +628,6 @@ const App = () => {
                     </div>
                 </header>
 
-                {/* MESSAGES AREA */}
                 <main className="flex-1 overflow-y-auto space-y-6 p-4 rounded-xl custom-scrollbar relative z-10">
                     {visibleMessages.length === 0 && (
                         <div className="text-center mt-32 animate-fade-in">
@@ -640,8 +644,8 @@ const App = () => {
                     <div ref={messagesEndRef} />
                 </main>
 
-                {/* FOOTER */}
-                <footer className="mt-4 bg-slate-900/60 backdrop-blur-xl border-t border-white/10 p-4 rounded-xl shadow-2xl">
+                {/* --- FOOTER (Z-20 FIXED) --- */}
+                <footer className="mt-4 bg-slate-900/60 backdrop-blur-xl border-t border-white/10 p-4 rounded-xl shadow-2xl relative z-20">
                     <div className="flex items-center gap-3 text-[10px] font-mono mb-3 uppercase tracking-widest transition-colors duration-500">
                         <Loader size={12} className={statusType === 'working' ? 'animate-spin text-amber-400' : 'text-slate-600'} />
                         <span className={`font-bold ${getStatusColor()}`}>
@@ -650,18 +654,76 @@ const App = () => {
                     </div>
 
                     <form onSubmit={handleSend} className="flex gap-3 items-end">
+                        
+                        {/* --- NEW FILE STAGING PANEL --- */}
                         {file && (
-                            <div className="absolute bottom-24 left-8 bg-indigo-900/90 text-indigo-200 px-4 py-2 rounded-lg text-xs flex items-center gap-3 border border-indigo-500 shadow-lg animate-fade-in-up">
-                                <FileText size={16} className="text-cyan-400" /> 
-                                <span className="font-mono">{file.name}</span>
-                                <button onClick={() => setFile(null)} className="hover:text-white bg-black/20 rounded-full p-1 ml-2">x</button>
+                            <div className="absolute bottom-24 left-0 right-0 mx-4 bg-slate-900/95 border border-cyan-500/30 rounded-2xl p-4 shadow-[0_0_30px_rgba(8,145,178,0.2)] animate-fade-in-up backdrop-blur-xl z-50">
+                                <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-2">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-cyan-950/50 rounded-lg border border-cyan-500/20">
+                                            <FileText size={20} className="text-cyan-400" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-200">{file.name}</p>
+                                            <p className="text-[10px] text-slate-500 font-mono uppercase">{(file.size / 1024).toFixed(1)} KB • ARTIFACT READY</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setFile(null)} className="text-slate-500 hover:text-white transition">x</button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    {/* LEFT: MODE SELECTOR */}
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Target Protocol</label>
+                                        <div className="flex bg-slate-950 rounded-lg p-1 border border-white/5">
+                                            <button 
+                                                type="button"
+                                                onClick={() => setUploadMode('chat')} 
+                                                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-bold transition-all ${uploadMode === 'chat' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                <MessageSquare size={14} /> Analyze (Chat)
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={() => setUploadMode('core')} 
+                                                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-bold transition-all ${uploadMode === 'core' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                <Database size={14} /> Anchor (Core)
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* RIGHT: CLICKABLE NUMBER PAD (1-9) */}
+                                    <div className={`space-y-2 transition-opacity duration-300 ${uploadMode === 'core' ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+                                        <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex justify-between">
+                                            <span>Priority Index</span>
+                                            <span className="text-indigo-400 font-mono">LVL {coreScore}</span>
+                                        </label>
+                                        <div className="flex justify-between bg-slate-950 rounded-lg p-1 border border-white/5">
+                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                                                <button
+                                                    key={num}
+                                                    type="button"
+                                                    onClick={() => setCoreScore(num)}
+                                                    className={`w-8 h-8 rounded-md text-xs font-bold font-mono transition-all ${
+                                                        coreScore === num 
+                                                            ? 'bg-cyan-600 text-white shadow-[0_0_10px_rgba(8,145,178,0.6)] scale-110' 
+                                                            : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+                                                    }`}
+                                                >
+                                                    {num}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         )}
 
                         <Tooltip text="Upload Artifact" enabled={tooltipsEnabled}>
                             <label className={`p-3.5 rounded-xl cursor-pointer transition-all duration-300 mb-1 border ${file ? 'bg-indigo-600 border-indigo-400 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' : 'bg-slate-800/50 border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
                                 <FileText size={20} />
-                                <input type="file" className="hidden" onChange={e => setFile(e.target.files[0])} />
+                                <input type="file" className="hidden" onChange={(e) => handleFileSelection(e.target.files[0])} />
                             </label>
                         </Tooltip>
                         
@@ -669,7 +731,7 @@ const App = () => {
                             value={input} 
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder={file ? "Add context to this artifact..." : "Transmit signal to Titan..."}
+                            placeholder={file ? (uploadMode === 'core' ? "Add note to permanent record..." : "Ask Titan about this file...") : "Transmit signal to Titan..."}
                             className="flex-1 bg-slate-950/50 border border-white/10 rounded-xl p-3.5 focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 text-sm shadow-inner text-slate-200 placeholder-slate-600 resize-none h-12 py-3 custom-scrollbar backdrop-blur-sm transition-all"
                             disabled={loading}
                             rows={1}
@@ -684,7 +746,6 @@ const App = () => {
                 </footer>
             </div>
             
-            {/* GLOBAL STYLES FOR ANIMATION */}
             <style jsx>{`
                 @keyframes drift {
                     0% { transform: scale(1.1); }
