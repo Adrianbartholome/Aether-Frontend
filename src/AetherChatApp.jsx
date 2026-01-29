@@ -8,7 +8,7 @@ import EmojiPicker, { Theme } from 'emoji-picker-react';
 // --- CONFIGURATION ---
 const BACKGROUND_IMAGE_URL = "/titan_bg.jpg"; 
 
-const WORKER_ENDPOINT = "[https://aether-immutable-core-84x6i.ondigitalocean.app/](https://aether-immutable-core-84x6i.ondigitalocean.app/)"; 
+const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
 const APP_TITLE = "Aether Titan Interface";
 const MODEL_NAME = 'gemini-2.5-flash';
 const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk"; 
