@@ -833,11 +833,6 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                     <button onClick={handleRestoreHistory} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <History size={16} className="text-cyan-400" /> Recall Sequence
                                     </button>
-                                    
-                                    {/* --- NEW SYNC BUTTON --- */}
-                                    <button onClick={handleSyncHolograms} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
-                                        <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
-                                    </button>
 
                                     <button onClick={() => setTooltipsEnabled(!tooltipsEnabled)} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <HelpCircle size={16} className={tooltipsEnabled ? "text-emerald-400" : "text-slate-500"} /> 
@@ -849,6 +844,11 @@ INSTRUCTION: Analyze this data for the Architect.`;
 
                                     {/* --- ZONE 2: TITAN PROTOCOLS (DANGER ZONE) --- */}
                                     <div className="px-4 py-2 text-[10px] font-bold text-red-500/80 uppercase tracking-widest bg-red-950/20 border-t border-white/5">Titan Protocols</div>
+
+                                    {/* --- NEW SYNC BUTTON --- */}
+                                    <button onClick={handleSyncHolograms} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
+                                        <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
+                                    </button>
 
                                     <button onClick={handleRestoreRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-400 flex items-center gap-3 border-b border-white/5 transition">
                                         <RotateCcw size={16} /> Restore Range (Undo)
