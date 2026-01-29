@@ -201,6 +201,10 @@ const App = () => {
     const [showScrapePanel, setShowScrapePanel] = useState(false);
     const [scrapeMode, setScrapeMode] = useState('chat'); // 'chat' or 'core'
     const [scrapeScore, setScrapeScore] = useState(5); // Default for web is neutral
+
+    // --- NEW: AUTO-SYNC LOGIC ---
+    const [isSyncing, setIsSyncing] = useState(false);
+    const stopSyncRef = useRef(false);
     
     const [status, setStatus] = useState(apiKey ? 'CORE ONLINE' : 'KEY MISSING');
     const [statusType, setStatusType] = useState('neutral'); 
@@ -343,33 +347,6 @@ const App = () => {
         setTimeout(() => updateStatus('CORE ONLINE', 'neutral'), 2000);
     };
 
-    // --- NEW: SYNC HANDLER ---
-    const handleSyncHolograms = async () => {
-        updateStatus("SCANNING CORE...", "working");
-        try {
-            const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            const data = await res.json();
-            
-            if (data.status === "SUCCESS") {
-                if (data.queued_count > 0) {
-                    updateStatus(`SYNCING ${data.queued_count} NODES...`, "working");
-                    await saveMessage('bot', `[SYSTEM]: Found ${data.queued_count} un-linked memories. Refraction protocol initiated in background.`, 'system');
-                    // Reset to neutral after a few seconds
-                    setTimeout(() => updateStatus("CORE ONLINE", "neutral"), 4000);
-                } else {
-                    updateStatus("SYSTEM SYNCHRONIZED", "success");
-                    await saveMessage('bot', `[SYSTEM]: Holographic Core is fully synchronized.`, 'system');
-                }
-            }
-        } catch (e) {
-            updateStatus("SYNC FAILED", "error");
-        }
-        setShowMenu(false);
-    };
-
     const handleRestoreHistory = () => {
         setViewSince(0);
         localStorage.removeItem('aether_view_since');
@@ -468,6 +445,58 @@ const App = () => {
             note: reason
         });
         setShowMenu(false);
+    };
+
+    // --- NEW: AUTO-LOOP SYNC HANDLER ---
+    const handleSyncHolograms = async () => {
+        setShowMenu(false);
+        setIsSyncing(true);
+        stopSyncRef.current = false;
+        let totalSynced = 0;
+
+        while (!stopSyncRef.current) {
+            updateStatus("SCANNING CORE...", "working");
+            try {
+                const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                
+                if (data.status === "SUCCESS") {
+                    if (data.queued_count > 0) {
+                        totalSynced += data.queued_count;
+                        // Tell user what's happening (Mode: Repair vs Weave)
+                        const modeText = data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING";
+                        updateStatus(`${modeText} ${data.queued_count} NODES... (TOTAL: ${totalSynced})`, "working");
+                        
+                        // Wait 3 seconds before next batch to be gentle
+                        await new Promise(r => setTimeout(r, 3000));
+                    } else {
+                        updateStatus("SYSTEM SYNCHRONIZED", "success");
+                        if (totalSynced > 0) {
+                            await saveMessage('bot', `[SYSTEM]: Deep Sweep Complete. Total Nodes Processed: ${totalSynced}.`, 'system');
+                        } else {
+                            // Only show generic success if we didn't do anything new
+                            updateStatus("SYSTEM SYNCHRONIZED", "success");
+                        }
+                        break; // Exit loop
+                    }
+                } else {
+                    break; // Error exit
+                }
+            } catch (e) {
+                updateStatus("SYNC FAILED", "error");
+                break;
+            }
+        }
+        setIsSyncing(false);
+        setTimeout(() => updateStatus("CORE ONLINE", "neutral"), 4000);
+    };
+
+    const handleStopSync = () => {
+        stopSyncRef.current = true;
+        updateStatus("ABORTING SYNC...", "error");
     };
 
     const callGemini = async (query, context) => {
@@ -742,6 +771,24 @@ INSTRUCTION: Analyze this data for the Architect.`;
             />
             <div className="fixed top-0 left-0 w-full h-[120vh] -z-30 bg-gradient-to-t from-slate-950 via-slate-900/80 to-indigo-950/60 pointer-events-none" />
 
+            {/* --- NEW: SYNC KILL SWITCH MODAL --- */}
+            {isSyncing && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-slate-900 border border-purple-500/30 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-scan" />
+                        <RefreshCw size={48} className="mx-auto text-purple-400 animate-spin mb-4" />
+                        <h2 className="text-xl font-bold text-white mb-2">Neural Weave Active</h2>
+                        <p className="text-slate-400 text-sm mb-6">Synchronizing deep memory nodes... please wait.</p>
+                        <button 
+                            onClick={handleStopSync}
+                            className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/50 px-6 py-2 rounded-lg font-bold tracking-widest transition-all"
+                        >
+                            ABORT SEQUENCE
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {isDragging && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-indigo-950/80 backdrop-blur-md border-4 border-dashed border-cyan-400/50 m-6 rounded-3xl animate-pulse">
                     <div className="text-center text-cyan-200">
@@ -786,6 +833,12 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                     <button onClick={handleRestoreHistory} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <History size={16} className="text-cyan-400" /> Recall Sequence
                                     </button>
+                                    
+                                    {/* --- NEW SYNC BUTTON --- */}
+                                    <button onClick={handleSyncHolograms} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
+                                        <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
+                                    </button>
+
                                     <button onClick={() => setTooltipsEnabled(!tooltipsEnabled)} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <HelpCircle size={16} className={tooltipsEnabled ? "text-emerald-400" : "text-slate-500"} /> 
                                         {tooltipsEnabled ? "HUD: Active" : "HUD: Disabled"}
@@ -796,10 +849,6 @@ INSTRUCTION: Analyze this data for the Architect.`;
 
                                     {/* --- ZONE 2: TITAN PROTOCOLS (DANGER ZONE) --- */}
                                     <div className="px-4 py-2 text-[10px] font-bold text-red-500/80 uppercase tracking-widest bg-red-950/20 border-t border-white/5">Titan Protocols</div>
-
-                                    <button onClick={handleSyncHolograms} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
-                                        <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
-                                    </button>
 
                                     <button onClick={handleRestoreRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-400 flex items-center gap-3 border-b border-white/5 transition">
                                         <RotateCcw size={16} /> Restore Range (Undo)
@@ -1042,6 +1091,13 @@ INSTRUCTION: Analyze this data for the Architect.`;
                 }
                 .animate-drift {
                     animation: drift 60s infinite alternate ease-in-out;
+                }
+                @keyframes scan {
+                    0% { transform: translateX(-100%); }
+                    100% { transform: translateX(100%); }
+                }
+                .animate-scan {
+                    animation: scan 2s linear infinite;
                 }
             `}</style>
         </div>
