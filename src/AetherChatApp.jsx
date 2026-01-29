@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw, AlertTriangle, Smile } from 'lucide-react';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
 
 // --- CONFIGURATION ---
 const BACKGROUND_IMAGE_URL = "/titan_bg.jpg"; 
 
-const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
+const WORKER_ENDPOINT = "[https://aether-immutable-core-84x6i.ondigitalocean.app/](https://aether-immutable-core-84x6i.ondigitalocean.app/)"; 
 const APP_TITLE = "Aether Titan Interface";
 const MODEL_NAME = 'gemini-2.5-flash';
 const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk"; 
@@ -196,6 +197,7 @@ const App = () => {
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [user, setUser] = useState(null);
     const [showMenu, setShowMenu] = useState(false);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     
     const [viewSince, setViewSince] = useState(() => {
         const saved = localStorage.getItem('aether_view_since');
@@ -208,6 +210,7 @@ const App = () => {
     const messagesCollectionPathRef = useRef(null);
     const menuRef = useRef(null);
     const fileInputRef = useRef(null); 
+    const emojiRef = useRef(null); 
 
     const updateStatus = (msg, type = 'neutral') => {
         setStatus(msg);
@@ -229,6 +232,9 @@ const App = () => {
         const handleClickOutside = (event) => {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
                 setShowMenu(false);
+            }
+            if (emojiRef.current && !emojiRef.current.contains(event.target)) {
+                setShowEmojiPicker(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -302,9 +308,9 @@ const App = () => {
         setFile(null);
         setUploadMode('chat');
         if (fileInputRef.current) {
-            fileInputRef.current.value = ""; // Physically clear the input
+            fileInputRef.current.value = ""; 
         }
-        updateStatus("CORE ONLINE", "neutral"); // FIX: Reset status bar
+        updateStatus("CORE ONLINE", "neutral");
     };
 
     const saveMessage = async (sender, text, source) => {
@@ -362,7 +368,7 @@ const App = () => {
                 else {
                     updateStatus(`SUCCESS: ${payload.commit_type ? payload.commit_type.toUpperCase() : 'COMMAND'}`, 'success');
                 }
-                return true;
+                return data; // --- FIX: Return full object so we can read scrape data
             } else {
                 updateStatus("CORE REJECT: " + (data.error || "Unknown"), 'error');
                 return false;
@@ -486,6 +492,34 @@ const App = () => {
         if (!input.trim() && !file) return;
 
         const userInput = input.trim() || (file ? `[Artifact Processed]: ${file.name}` : '');
+
+        // --- NEW: WEB SCRAPE TRIGGER ---
+        // Regex detects: [SCRAPE] http...
+        const scrapeMatch = userInput.match(/\[SCRAPE\]\s+(https?:\/\/[^\s]+)/i);
+        if (scrapeMatch) {
+            setLoading(true);
+            const url = scrapeMatch[1];
+            await saveMessage('user', userInput);
+            
+            updateStatus("DEPLOYING SPIDER...", 'working');
+            
+            // Call Backend
+            const scrapeRes = await executeTitanCommand({ action: 'scrape', url: url });
+            
+            if (scrapeRes && scrapeRes.status === "SUCCESS") {
+                updateStatus("WEB CONTENT SECURED", 'success');
+                const scrapedText = scrapeRes.content;
+                // Feed to Gemini as context
+                await callGemini(`${userInput}\n\n[SCRAPED WEB CONTENT]:\n${scrapedText}`, messages);
+            } else {
+                updateStatus("SCRAPE FAILED", 'error');
+                await saveMessage('bot', `[SYSTEM ERROR]: Could not reach ${url}. Spider blocked or network failed.`, 'error');
+            }
+            
+            setLoading(false);
+            setInput('');
+            return;
+        }
 
         // --- COMMAND PARSING (Delete/Purge) ---
         const rangeMatch = userInput.match(/(?:delete range|purge range)\s+(\d+)-(\d+)/i);
@@ -818,6 +852,34 @@ const App = () => {
                                 <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelection(e.target.files[0])} />
                             </label>
                         </Tooltip>
+
+                        {/* --- NEW: EMOJI PICKER TOGGLE BUTTON --- */}
+                        <div className="relative" ref={emojiRef}>
+                            <Tooltip text="Add Emoji" enabled={tooltipsEnabled}>
+                                <button
+                                    type="button" // Important: Don't submit form
+                                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                                    className={`p-3.5 rounded-xl transition-all duration-300 mb-1 border ${showEmojiPicker ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-slate-800/50 border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white'}`}
+                                >
+                                    <Smile size={20} />
+                                </button>
+                            </Tooltip>
+
+                            {/* --- EMOJI PICKER POPUP --- */}
+                            {showEmojiPicker && (
+                                <div className="absolute bottom-16 left-0 z-50 animate-fade-in-up">
+                                    <EmojiPicker
+                                        theme={Theme.DARK}
+                                        onEmojiClick={(emojiData) => {
+                                            setInput((prev) => prev + emojiData.emoji);
+                                            // setShowEmojiPicker(false); // Optional: Close after pick?
+                                        }}
+                                        width={350}
+                                        height={400}
+                                    />
+                                </div>
+                            )}
+                        </div>
                         
                         <textarea 
                             value={input} 
