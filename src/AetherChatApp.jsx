@@ -204,6 +204,7 @@ const App = () => {
 
     // --- NEW: AUTO-SYNC LOGIC ---
     const [isSyncing, setIsSyncing] = useState(false);
+    const [syncStats, setSyncStats] = useState({ count: 0, mode: 'SCANNING' }); // NEW: Track progress for UI
     const stopSyncRef = useRef(false);
     
     const [status, setStatus] = useState(apiKey ? 'CORE ONLINE' : 'KEY MISSING');
@@ -447,10 +448,11 @@ const App = () => {
         setShowMenu(false);
     };
 
-    // --- NEW: AUTO-LOOP SYNC HANDLER ---
+    // --- NEW: AUTO-LOOP SYNC HANDLER (WITH LIVE STATS) ---
     const handleSyncHolograms = async () => {
         setShowMenu(false);
         setIsSyncing(true);
+        setSyncStats({ count: 0, mode: 'INITIALIZING' }); // Reset stats
         stopSyncRef.current = false;
         let totalSynced = 0;
 
@@ -466,24 +468,25 @@ const App = () => {
                 if (data.status === "SUCCESS") {
                     if (data.queued_count > 0) {
                         totalSynced += data.queued_count;
-                        // Tell user what's happening (Mode: Repair vs Weave)
                         const modeText = data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING";
-                        updateStatus(`${modeText} ${data.queued_count} NODES... (TOTAL: ${totalSynced})`, "working");
                         
-                        // Wait 3 seconds before next batch to be gentle
+                        // Update Modal Stats
+                        setSyncStats({ count: totalSynced, mode: modeText });
+                        updateStatus(`${modeText}... (TOTAL: ${totalSynced})`, "working");
+                        
+                        // Wait 3 seconds before next batch
                         await new Promise(r => setTimeout(r, 3000));
                     } else {
                         updateStatus("SYSTEM SYNCHRONIZED", "success");
                         if (totalSynced > 0) {
                             await saveMessage('bot', `[SYSTEM]: Deep Sweep Complete. Total Nodes Processed: ${totalSynced}.`, 'system');
                         } else {
-                            // Only show generic success if we didn't do anything new
                             updateStatus("SYSTEM SYNCHRONIZED", "success");
                         }
-                        break; // Exit loop
+                        break; 
                     }
                 } else {
-                    break; // Error exit
+                    break;
                 }
             } catch (e) {
                 updateStatus("SYNC FAILED", "error");
@@ -771,14 +774,22 @@ INSTRUCTION: Analyze this data for the Architect.`;
             />
             <div className="fixed top-0 left-0 w-full h-[120vh] -z-30 bg-gradient-to-t from-slate-950 via-slate-900/80 to-indigo-950/60 pointer-events-none" />
 
-            {/* --- NEW: SYNC KILL SWITCH MODAL --- */}
+            {/* --- NEW: SYNC KILL SWITCH MODAL WITH LIVE STATS --- */}
             {isSyncing && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
                     <div className="bg-slate-900 border border-purple-500/30 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-scan" />
                         <RefreshCw size={48} className="mx-auto text-purple-400 animate-spin mb-4" />
                         <h2 className="text-xl font-bold text-white mb-2">Neural Weave Active</h2>
-                        <p className="text-slate-400 text-sm mb-6">Synchronizing deep memory nodes... please wait.</p>
+                        
+                        {/* LIVE STATS DISPLAY */}
+                        <p className="text-purple-300 font-mono text-lg font-bold mb-1">
+                            {syncStats.mode === 'SCANNING' ? 'SCANNING SECTORS...' : `${syncStats.mode} NODES`}
+                        </p>
+                        <p className="text-slate-400 text-sm mb-6">
+                            {syncStats.count > 0 ? `Total Processed: ${syncStats.count}` : "Initializing Protocol..."}
+                        </p>
+
                         <button 
                             onClick={handleStopSync}
                             className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/50 px-6 py-2 rounded-lg font-bold tracking-widest transition-all"
@@ -844,8 +855,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
 
                                     {/* --- ZONE 2: TITAN PROTOCOLS (DANGER ZONE) --- */}
                                     <div className="px-4 py-2 text-[10px] font-bold text-red-500/80 uppercase tracking-widest bg-red-950/20 border-t border-white/5">Titan Protocols</div>
-
-                                    {/* --- NEW SYNC BUTTON --- */}
+                                    
                                     <button onClick={handleSyncHolograms} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
                                     </button>
