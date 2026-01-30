@@ -4,6 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw, AlertTriangle, Smile } from 'lucide-react';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
+import TitanGraph from './TitanGraph';
 
 // --- CONFIGURATION ---
 const BACKGROUND_IMAGE_URL = "/titan_bg.jpg"; 
@@ -191,6 +192,7 @@ const App = () => {
     const [input, setInput] = useState('');
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [showGraph, setShowGraph] = useState(false);
 
     // Inside your App component
     const [activeModel, setActiveModel] = useState('gemini-2.5-flash');
@@ -887,6 +889,13 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                         <Minimize2 size={16} /> Clear Local Cache
                                     </button>
 
+                                    <button
+                                        onClick={() => { setShowGraph(true); setShowMenu(false); }}
+                                        className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-300 flex items-center gap-3 border-b border-white/5 transition font-bold"
+                                    >
+                                        <Hexagon size={16} /> Neural Map (3D)
+                                    </button>
+
                                     {/* --- ZONE 2: TITAN PROTOCOLS (DANGER ZONE) --- */}
                                     <div className="px-4 py-2 text-[10px] font-bold text-red-500/80 uppercase tracking-widest bg-red-950/20 border-t border-white/5">Titan Protocols</div>
                                     
@@ -1144,6 +1153,15 @@ INSTRUCTION: Analyze this data for the Architect.`;
                     animation: scan 2s linear infinite;
                 }
             `}</style>
+                {/* --- 3D GRAPH OVERLAY --- */ }
+            {
+                showGraph && (
+                    <TitanGraph
+                        workerEndpoint={WORKER_ENDPOINT}
+                        onClose={() => setShowGraph(false)}
+                    />
+                )
+            }
         </div>
     );
 };
