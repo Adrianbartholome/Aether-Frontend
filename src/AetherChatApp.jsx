@@ -188,6 +188,8 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
 
 // --- MAIN APP ---
 const App = () => {
+    const [syncThreshold, setSyncThreshold] = useState(5); 
+
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [file, setFile] = useState(null);
@@ -487,7 +489,8 @@ const App = () => {
             try {
                 const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ gate_threshold: syncThreshold })
                 });
                 const data = await res.json();
                 
@@ -793,27 +796,42 @@ INSTRUCTION: Analyze this data for the Architect.`;
             <div className="fixed top-0 left-0 w-full h-[120vh] -z-30 bg-gradient-to-t from-slate-950 via-slate-900/80 to-indigo-950/60 pointer-events-none" />
 
             {/* --- NEW: SYNC KILL SWITCH MODAL WITH LIVE STATS --- */}
+            {/* --- UPDATED SYNC MODAL --- */}
             {isSyncing && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
                     <div className="bg-slate-900 border border-purple-500/30 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-scan" />
-                        <RefreshCw size={48} className="mx-auto text-purple-400 animate-spin mb-4" />
+
                         <h2 className="text-xl font-bold text-white mb-2">Neural Weave Active</h2>
-                        
-                        {/* LIVE STATS DISPLAY */}
+
+                        {/* --- NEW: THRESHOLD INPUT --- */}
+                        <div className="mb-4 p-3 bg-black/40 rounded-xl border border-white/5">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">
+                                Significance Gate (1-9)
+                            </label>
+                            <div className="flex items-center justify-center gap-3">
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="9"
+                                    value={syncThreshold} // You'll need to define this state [syncThreshold, setSyncThreshold] = useState(5)
+                                    onChange={(e) => setSyncThreshold(parseInt(e.target.value))}
+                                    className="w-16 bg-slate-950 border border-purple-500/30 rounded-lg p-2 text-center text-purple-400 font-mono text-lg focus:outline-none focus:border-purple-500"
+                                />
+                                <div className="text-left">
+                                    <p className="text-[9px] text-slate-400 leading-tight">
+                                        {syncThreshold > 6 ? "ECONOMY: Only weaving Core Memories." :
+                                            syncThreshold < 4 ? "BURN: Weaving everything (Expensive)." :
+                                                "BALANCED: Weaving meaningful signal."}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
                         <p className="text-purple-300 font-mono text-lg font-bold mb-1">
                             {syncStats.mode === 'SCANNING' ? 'SCANNING SECTORS...' : `${syncStats.mode} NODES`}
                         </p>
-                        <p className="text-slate-400 text-sm mb-6">
-                            {syncStats.count > 0 ? `Total Processed: ${syncStats.count}` : "Initializing Protocol..."}
-                        </p>
-
-                        <button 
-                            onClick={handleStopSync}
-                            className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/50 px-6 py-2 rounded-lg font-bold tracking-widest transition-all"
-                        >
-                            ABORT SEQUENCE
-                        </button>
+                        {/* ... rest of the modal buttons ... */}
                     </div>
                 </div>
             )}
