@@ -191,6 +191,30 @@ const App = () => {
     const [input, setInput] = useState('');
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
+
+    // Inside your App component
+    const [activeModel, setActiveModel] = useState('gemini-2.5-flash');
+    const [isFallbackActive, setIsFallbackActive] = useState(false);
+
+    // Add a function to check the Shield Status from your backend
+    const syncShieldStatus = async () => {
+        try {
+            const res = await fetch(`${WORKER_ENDPOINT}admin/shield/status`);
+            const data = await res.json();
+            // If primary is not viable, we are in fallback mode
+            setIsFallbackActive(!data.primary_viable);
+            setActiveModel(data.primary_viable ? 'gemini-2.5-flash' : 'gemini-3-flash-preview');
+        } catch (e) {
+            console.error("Shield Sync Failed", e);
+        }
+    };
+
+// Run this check every minute
+useEffect(() => {
+    syncShieldStatus();
+    const interval = setInterval(syncShieldStatus, 60000);
+    return () => clearInterval(interval);
+}, []);
     
     // --- FILE UPLOAD LOGIC ---
     const [uploadMode, setUploadMode] = useState('chat'); // 'chat' or 'core'
@@ -503,51 +527,43 @@ const App = () => {
     };
 
     const callGemini = async (query, context) => {
-        updateStatus("TITAN THINKING...", 'working');
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
-        const history = context.map(m => `${m.sender}: ${m.text}`).join('\n');
-        
-        const payload = {
-            contents: [{ parts: [{ text: `HISTORY:\n${history}\nCURRENT INPUT: ${query}` }] }],
-            systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-            generationConfig: { temperature: 0.7 }
-        };
-
-        try {
-            const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
-            const data = await res.json();
-            const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || "Signal Lost.";
-            
-            let aiCommitType = null;
-            let cleanText = raw;
-
-            for (const [type, tag] of Object.entries(TRIGGERS)) {
-                if (raw.includes(tag)) {
-                    aiCommitType = type;
-                    cleanText = cleanText.replace(tag, "").trim();
-                }
-            }
-            
-            await saveMessage('bot', cleanText, 'ai');
-            updateStatus("SIGNAL RECEIVED", 'neutral');
-
-            if (aiCommitType) {
-                let contentToCommit = "";
-                if (aiCommitType === 'full') {
-                    contentToCommit = [...context, {sender: 'bot', text: cleanText}].map(m => `${m.sender}: ${m.text}`).join('\n');
-                    await executeTitanCommand({ action: 'commit', commit_type: aiCommitType, memory_text: contentToCommit });
-                    await saveMessage('bot', `[SYSTEM]: FULL BURN COMPLETE.`, 'system');
-                } else {
-                    contentToCommit = cleanText;
-                    await executeTitanCommand({ action: 'commit', commit_type: aiCommitType, memory_text: contentToCommit });
-                    await saveMessage('bot', `[SYSTEM]: ${aiCommitType.toUpperCase()} archived.`, 'system');
-                }
-            }
-        } catch (e) {
-            await saveMessage('bot', `Titan Error: ${e.message}`, 'error');
-            updateStatus("CONNECTION ERROR", 'error');
-        }
+    updateStatus("TRANSMITTING TO TITAN...", 'working');
+    
+    // We send the full history to the BACKEND now
+    const payload = {
+        action: 'chat', // You'll need to ensure your backend handle_request expects this
+        memory_text: query,
+        // Optional: send history if your backend doesn't pull it from DB
+        history: context.slice(-10).map(m => `${m.sender}: ${m.text}`).join('\n') 
     };
+
+    try {
+        const res = await fetch(WORKER_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await res.json();
+
+        if (data.status === "FATAL ERROR" && data.error.includes("Titan Shield")) {
+            updateStatus("ALL MODELS EXHAUSTED", 'error');
+            await saveMessage('bot', "🚫 [CRITICAL]: All neural paths are locked. Quota depleted.", 'error');
+            return;
+        }
+
+        // Your backend returns the lithograph result
+        // The AI text is actually inside the lithograph or you might need 
+        // to modify your backend to return the raw AI response text too!
+        const aiResponse = data.ai_text || "Signal Anchored to Core."; 
+        
+        await saveMessage('bot', aiResponse, 'ai');
+        updateStatus("SIGNAL STABLE", 'neutral');
+        syncShieldStatus(); // Refresh shield status after the call
+    } catch (e) {
+        updateStatus("LINK FAILURE", 'error');
+    }
+};
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -820,6 +836,24 @@ INSTRUCTION: Analyze this data for the Architect.`;
                             {APP_TITLE}
                         </span>
                     </h1>
+                    
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/50 border border-white/10">
+                        <div className={`w-2 h-2 rounded-full ${isFallbackActive ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+                        <span className="text-[10px] font-mono text-slate-300 uppercase tracking-tighter">
+                            {activeModel}
+                        </span>
+                        {isFallbackActive && (
+                            <button
+                                onClick={async () => {
+                                    await fetch(`${WORKER_ENDPOINT}admin/shield/reset`, { method: 'POST' });
+                                    syncShieldStatus();
+                                }}
+                                className="ml-2 text-[9px] bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 px-2 py-0.5 rounded border border-amber-500/30"
+                            >
+                                RESET LIMIT
+                            </button>
+                        )}
+                    </div>
                     <div className="flex gap-2 items-center">
                         <Tooltip text="Manual Core Anchor" enabled={tooltipsEnabled}>
                             <button onClick={() => executeTitanCommand({ action: 'commit', commit_type: 'full', memory_text: messages.map(m => m.text).join('\n') })} className="bg-indigo-600/80 hover:bg-indigo-500 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] p-2 rounded-lg text-xs flex items-center gap-1 transition-all border border-indigo-400/30 text-white">
