@@ -7,16 +7,16 @@ import EmojiPicker, { Theme } from 'emoji-picker-react';
 import TitanGraph from './TitanGraph';
 
 // --- CONFIGURATION ---
-const BACKGROUND_IMAGE_URL = "/titan_bg.jpg"; 
+const BACKGROUND_IMAGE_URL = "/titan_bg.jpg";
 
-const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/"; 
+const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/";
 const APP_TITLE = "Aether Titan Interface";
 const MODEL_NAME = 'gemini-2.5-flash';
-const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk"; 
+const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk";
 
 // --- TUNING ---
-const CHUNK_SIZE = 2000;   
-const CHUNK_OVERLAP = 400; 
+const CHUNK_SIZE = 2000;
+const CHUNK_OVERLAP = 400;
 
 // --- TITAN SYSTEM PROMPT ---
 const SYSTEM_PROMPT = `
@@ -91,9 +91,9 @@ const Tooltip = ({ text, children, enabled }) => {
     if (!enabled) return children;
 
     return (
-        <div 
-            className="relative flex items-center" 
-            onMouseEnter={() => setVisible(true)} 
+        <div
+            className="relative flex items-center"
+            onMouseEnter={() => setVisible(true)}
             onMouseLeave={() => setVisible(false)}
         >
             {children}
@@ -134,29 +134,29 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
         });
     };
 
-    const bubbleClass = m.source === 'system' 
-        ? 'bg-fuchsia-900/30 border-fuchsia-500/30 text-fuchsia-100' 
-        : isOwn 
-            ? 'bg-slate-800/60 border-slate-500/30 text-slate-100 rounded-tr-sm backdrop-blur-sm' 
+    const bubbleClass = m.source === 'system'
+        ? 'bg-fuchsia-900/30 border-fuchsia-500/30 text-fuchsia-100'
+        : isOwn
+            ? 'bg-slate-800/60 border-slate-500/30 text-slate-100 rounded-tr-sm backdrop-blur-sm'
             : 'bg-indigo-900/60 border-indigo-400/30 text-indigo-50 rounded-tl-sm backdrop-blur-sm shadow-[0_0_15px_rgba(79,70,229,0.1)]';
 
     return (
         <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group relative mb-4`}>
             <div className={`relative max-w-[85%] p-5 rounded-2xl border ${bubbleClass} transition-all duration-300`}>
-                
+
                 <div className="flex justify-between items-start mb-2 gap-3 pb-2 border-b border-white/5">
                     <p className={`text-[10px] font-bold uppercase tracking-[0.2em] opacity-60 flex items-center gap-1 ${isOwn ? 'text-slate-300' : 'text-cyan-300'}`}>
                         {m.sender === 'bot' ? <><Hexagon size={10} className="text-cyan-400" /> TITAN NODE</> : 'ARCHITECT'}
                     </p>
-                    
+
                     <div className="relative z-10" ref={menuRef}>
-                        <button 
+                        <button
                             onClick={(e) => { e.stopPropagation(); setShowBubbleMenu(!showBubbleMenu); }}
                             className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded ml-2 text-white/50 hover:text-white"
                         >
                             <MoreVertical size={14} />
                         </button>
-                        
+
                         {showBubbleMenu && (
                             <div className="absolute right-0 top-6 bg-black/90 border border-white/20 rounded-lg shadow-2xl z-50 w-32 overflow-hidden backdrop-blur-xl">
                                 <button onClick={() => { onCopy(m.text); setShowBubbleMenu(false); }} className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-white/10 text-gray-200 text-left">
@@ -188,7 +188,8 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
 
 // --- MAIN APP ---
 const App = () => {
-    const [syncThreshold, setSyncThreshold] = useState(5); 
+    const [syncThreshold, setSyncThreshold] = useState(5);
+    const [syncPhase, setSyncPhase] = useState('IDLE'); // 'IDLE', 'CONFIG', or 'ACTIVE'
 
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -219,7 +220,7 @@ const App = () => {
         const interval = setInterval(syncShieldStatus, 60000);
         return () => clearInterval(interval);
     }, []);
-    
+
     // --- FILE UPLOAD LOGIC ---
     const [uploadMode, setUploadMode] = useState('chat'); // 'chat' or 'core'
     const [coreScore, setCoreScore] = useState(9); // Default 9
@@ -234,9 +235,9 @@ const App = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncStats, setSyncStats] = useState({ count: 0, mode: 'SCANNING' }); // NEW: Track progress for UI
     const stopSyncRef = useRef(false);
-    
+
     const [status, setStatus] = useState(apiKey ? 'CORE ONLINE' : 'KEY MISSING');
-    const [statusType, setStatusType] = useState('neutral'); 
+    const [statusType, setStatusType] = useState('neutral');
     const [tooltipsEnabled, setTooltipsEnabled] = useState(true);
     const [isDragging, setIsDragging] = useState(false);
 
@@ -244,7 +245,7 @@ const App = () => {
     const [user, setUser] = useState(null);
     const [showMenu, setShowMenu] = useState(false);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-    
+
     const [viewSince, setViewSince] = useState(() => {
         const saved = localStorage.getItem('aether_view_since');
         return saved ? parseInt(saved, 10) : 0;
@@ -255,8 +256,8 @@ const App = () => {
     const authRef = useRef(null);
     const messagesCollectionPathRef = useRef(null);
     const menuRef = useRef(null);
-    const fileInputRef = useRef(null); 
-    const emojiRef = useRef(null); 
+    const fileInputRef = useRef(null);
+    const emojiRef = useRef(null);
 
     const updateStatus = (msg, type = 'neutral') => {
         setStatus(msg);
@@ -265,7 +266,7 @@ const App = () => {
 
     // --- BODY PAINT ---
     useEffect(() => {
-        document.body.style.backgroundColor = "#0f172a"; 
+        document.body.style.backgroundColor = "#0f172a";
         document.body.style.margin = "0";
         document.body.style.overflow = "hidden";
         return () => {
@@ -295,7 +296,7 @@ const App = () => {
         if (!firebaseConfigStr) return;
         const config = JSON.parse(firebaseConfigStr);
         const app = getApps().length === 0 ? initializeApp(config) : getApp();
-        
+
         dbRef.current = getFirestore(app);
         authRef.current = getAuth(app);
 
@@ -344,7 +345,7 @@ const App = () => {
     // --- HELPER: CENTRALIZED FILE SELECTION ---
     const handleFileSelection = (selectedFile) => {
         setFile(selectedFile);
-        setUploadMode('chat'); 
+        setUploadMode('chat');
         setCoreScore(9);
         updateStatus("ARTIFACT DETECTED. AWAITING PROTOCOL.", 'working');
     };
@@ -354,7 +355,7 @@ const App = () => {
         setFile(null);
         setUploadMode('chat');
         if (fileInputRef.current) {
-            fileInputRef.current.value = ""; 
+            fileInputRef.current.value = "";
         }
         updateStatus("CORE ONLINE", "neutral");
     };
@@ -393,12 +394,12 @@ const App = () => {
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-            
+
             if (data.status === "SUCCESS") {
                 if (payload.action === 'delete') {
                     updateStatus(`DEACTIVATED ID: ${data.deleted_id}`, 'success');
                     await saveMessage('bot', `[SYSTEM]: Lithograph ID ${data.deleted_id} removed from active chain.`, 'system');
-                } 
+                }
                 else if (payload.action === 'delete_range') {
                     updateStatus(`PURGE COMPLETE: ${data.deleted_count} SHARDS`, 'success');
                     await saveMessage('bot', `[SYSTEM]: Orbital Purge Successful. ${data.deleted_count} shards deactivated.`, 'system');
@@ -414,7 +415,7 @@ const App = () => {
                 else {
                     updateStatus(`SUCCESS: ${payload.commit_type ? payload.commit_type.toUpperCase() : 'COMMAND'}`, 'success');
                 }
-                return data; 
+                return data;
             } else {
                 updateStatus("CORE REJECT: " + (data.error || "Unknown"), 'error');
                 return false;
@@ -436,11 +437,11 @@ const App = () => {
         if (count > 50) {
             if (!window.confirm(`WARNING: Targeting ${count} memory shards. Confirm destruction?`)) return;
         }
-        
-        await executeTitanCommand({ 
-            action: 'delete_range', 
-            target_id: parseInt(start), 
-            range_end: parseInt(end) 
+
+        await executeTitanCommand({
+            action: 'delete_range',
+            target_id: parseInt(start),
+            range_end: parseInt(end)
         });
         setShowMenu(false);
     };
@@ -450,11 +451,11 @@ const App = () => {
         if (!start) return;
         const end = window.prompt("RESTORE PROTOCOL: End ID");
         if (!end) return;
-        
-        await executeTitanCommand({ 
-            action: 'restore_range', 
-            target_id: parseInt(start), 
-            range_end: parseInt(end) 
+
+        await executeTitanCommand({
+            action: 'restore_range',
+            target_id: parseInt(start),
+            range_end: parseInt(end)
         });
         setShowMenu(false);
     };
@@ -462,25 +463,26 @@ const App = () => {
     const handleRehashUI = async () => {
         if (!window.confirm("WARNING 1/3: This will permanently obliterate all 'Deleted' records. They cannot be recovered.")) return;
         if (!window.confirm("WARNING 2/3: This will rewrite the entire Cryptographic Chain from Genesis. This is a heavy operation.")) return;
-        
+
         const confirmation = window.prompt("WARNING 3/3: Type 'BURN' to execute the Rehash Protocol.");
         if (confirmation !== "BURN") return;
 
         const reason = window.prompt("REQUIRED: Enter a reason for this history rewrite (for the log):");
         if (!reason) return;
 
-        await executeTitanCommand({ 
-            action: 'rehash', 
+        await executeTitanCommand({
+            action: 'rehash',
             note: reason
         });
         setShowMenu(false);
     };
 
     // --- NEW: AUTO-LOOP SYNC HANDLER (WITH LIVE STATS) ---
+    // --- MERGED SYNC HANDLER ---
+    // --- MERGED SYNC HANDLER ---
     const handleSyncHolograms = async () => {
-        setShowMenu(false);
-        setIsSyncing(true);
-        setSyncStats({ count: 0, mode: 'INITIALIZING' }); // Reset stats
+        setSyncPhase('ACTIVE');
+        setSyncStats({ count: 0, mode: 'INITIALIZING' });
         stopSyncRef.current = false;
         let totalSynced = 0;
 
@@ -493,82 +495,99 @@ const App = () => {
                     body: JSON.stringify({ gate_threshold: syncThreshold })
                 });
                 const data = await res.json();
-                
+
                 if (data.status === "SUCCESS") {
                     if (data.queued_count > 0) {
                         totalSynced += data.queued_count;
                         const modeText = data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING";
-                        
-                        // Update Modal Stats
                         setSyncStats({ count: totalSynced, mode: modeText });
                         updateStatus(`${modeText}... (TOTAL: ${totalSynced})`, "working");
-                        
-                        // Wait 3 seconds before next batch
                         await new Promise(r => setTimeout(r, 3000));
                     } else {
-                        updateStatus("SYSTEM SYNCHRONIZED", "success");
-                        if (totalSynced > 0) {
-                            await saveMessage('bot', `[SYSTEM]: Deep Sweep Complete. Total Nodes Processed: ${totalSynced}.`, 'system');
-                        } else {
+                        // Only show success message if we didn't manually stop
+                        if (!stopSyncRef.current) {
                             updateStatus("SYSTEM SYNCHRONIZED", "success");
+                            if (totalSynced > 0) {
+                                await saveMessage('bot', `[SYSTEM]: Deep Sweep Complete. Total Nodes Processed: ${totalSynced}.`, 'system');
+                            }
                         }
-                        break; 
+                        break;
                     }
                 } else {
+                    updateStatus("CORE REJECTED BATCH", "error");
                     break;
                 }
             } catch (e) {
-                updateStatus("SYNC FAILED", "error");
+                updateStatus("SYNC FAILED: LINK LOSS", "error");
                 break;
             }
         }
+
+        // Final Cleanup for both Success AND Abort
         setIsSyncing(false);
-        setTimeout(() => updateStatus("CORE ONLINE", "neutral"), 4000);
+        setSyncPhase('IDLE');
+        if (!stopSyncRef.current) {
+            setTimeout(() => updateStatus("CORE ONLINE", "neutral"), 4000);
+        }
     };
 
     const handleStopSync = () => {
         stopSyncRef.current = true;
-        updateStatus("ABORTING SYNC...", "error");
+        updateStatus("ABORT SEQUENCE INITIATED", "error");
+        // The loop will break on its next check and close the modal automatically
+    };
+
+    const closeSyncConfig = () => {
+        setIsSyncing(false);
+        setSyncPhase('IDLE');
+        updateStatus("SYNC CANCELLED", "neutral");
+    };
+
+    // 1. Just opens the settings
+    const openSyncConfig = () => {
+        setShowMenu(false);
+        setSyncPhase('CONFIG');
+        setIsSyncing(true); // Keeps the modal background visible
     };
 
     const callGemini = async (query, context) => {
-    updateStatus("TRANSMITTING TO TITAN...", 'working');
-    
-    // We send the full history to the BACKEND now
-    const payload = {
-        action: 'chat', // You'll need to ensure your backend handle_request expects this
-        memory_text: query,
-        // Optional: send history if your backend doesn't pull it from DB
-        history: context.slice(-10).map(m => `${m.sender}: ${m.text}`).join('\n') 
-    };
+        updateStatus("TRANSMITTING TO TITAN...", 'working');
 
-    try {
-        const res = await fetch(WORKER_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        
-        const data = await res.json();
+        // We send the full history to the BACKEND now
+        const payload = {
+            action: 'chat', // You'll need to ensure your backend handle_request expects this
+            memory_text: query,
+            // Optional: send history if your backend doesn't pull it from DB
+            history: context.slice(-10).map(m => `${m.sender}: ${m.text}`).join('\n')
+        };
 
-        if (data.status === "FATAL ERROR" && data.error.includes("Titan Shield")) {
-            updateStatus("ALL MODELS EXHAUSTED", 'error');
-            await saveMessage('bot', "🚫 [CRITICAL]: All neural paths are locked. Quota depleted.", 'error');
-            return;
+        try {
+            const res = await fetch(WORKER_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+
+            if (data.status === "FATAL ERROR" && data.error.includes("Titan Shield")) {
+                updateStatus("ALL MODELS EXHAUSTED", 'error');
+                await saveMessage('bot', "🚫 [CRITICAL]: All neural paths are locked. Quota depleted.", 'error');
+                return;
+            }
+
+            // Your backend returns the lithograph result
+            // The AI text is actually inside the lithograph or you might need 
+            // to modify your backend to return the raw AI response text too!
+            const aiResponse = data.ai_text || "Signal Anchored to Core.";
+
+            await saveMessage('bot', aiResponse, 'ai');
+            updateStatus("SIGNAL STABLE", 'neutral');
+            syncShieldStatus(); // Refresh shield status after the call
+        } catch (e) {
+            updateStatus("LINK FAILURE", 'error');
         }
-
-        // Your backend returns the lithograph result
-        // The AI text is actually inside the lithograph or you might need 
-        // to modify your backend to return the raw AI response text too!
-        const aiResponse = data.ai_text || "Signal Anchored to Core."; 
-        
-        await saveMessage('bot', aiResponse, 'ai');
-        updateStatus("SIGNAL STABLE", 'neutral');
-        syncShieldStatus(); // Refresh shield status after the call
-    } catch (e) {
-        updateStatus("LINK FAILURE", 'error');
-    }
-};
+    };
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -580,7 +599,7 @@ const App = () => {
     // --- NEW: EXECUTE SCRAPE (TRIGGERED BY UI) ---
     const executeScrape = async () => {
         if (!scrapeUrl) return;
-        
+
         setShowScrapePanel(false);
         setLoading(true);
         await saveMessage('user', `[SCRAPE COMMAND]: ${scrapeUrl} (Mode: ${scrapeMode.toUpperCase()})`);
@@ -588,7 +607,7 @@ const App = () => {
 
         // 1. FETCH CONTENT
         const scrapeRes = await executeTitanCommand({ action: 'scrape', url: scrapeUrl });
-        
+
         if (!scrapeRes || scrapeRes.status !== "SUCCESS") {
             updateStatus("SCRAPE FAILED", 'error');
             await saveMessage('bot', `[SYSTEM ERROR]: Could not reach ${scrapeUrl}. Spider blocked or network failed.`, 'error');
@@ -602,35 +621,35 @@ const App = () => {
 
         // 2. BRANCH: ANCHOR TO CORE (HARD SAVE)
         if (scrapeMode === 'core') {
-             // Chunk it just like a file
-             const chunks = chunkText(scrapedText, CHUNK_SIZE, CHUNK_OVERLAP);
-             updateStatus(`SHARDING WEB DATA: ${chunks.length} FRAGMENTS...`, 'working');
-             
-             let successCount = 0;
-             for (let i = 0; i < chunks.length; i++) {
-                 updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
-                 
-                 const chunkWithHeader = `[WEB SOURCE: ${scrapeUrl} | PART ${i+1}/${chunks.length}]\n\n${chunks[i]}`;
-                 
-                 const success = await executeTitanCommand({ 
-                     action: 'commit', 
-                     commit_type: 'web_scrape', 
-                     memory_text: chunkWithHeader, 
-                     override_score: scrapeScore 
-                 });
-                 if (success) successCount++;
-             }
+            // Chunk it just like a file
+            const chunks = chunkText(scrapedText, CHUNK_SIZE, CHUNK_OVERLAP);
+            updateStatus(`SHARDING WEB DATA: ${chunks.length} FRAGMENTS...`, 'working');
 
-             if (successCount === chunks.length) {
-                 updateStatus(`CORE INGEST COMPLETE (LVL ${scrapeScore})`, 'success');
-                 await saveMessage('bot', `[SYSTEM]: Web Data Anchored. ${chunks.length} shards created from ${scrapeUrl}.`, 'system');
-                 
-                 // Optional: Ask Titan to summarize what it just ate
-                 await callGemini(`[SYSTEM EVENT]: I have successfully anchored content from ${scrapeUrl} into the Core. Briefly confirm the ingestion and summarize the topic.`, messages);
-             } else {
-                 updateStatus("PARTIAL INGEST FAILURE", 'error');
-             }
-        } 
+            let successCount = 0;
+            for (let i = 0; i < chunks.length; i++) {
+                updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
+
+                const chunkWithHeader = `[WEB SOURCE: ${scrapeUrl} | PART ${i + 1}/${chunks.length}]\n\n${chunks[i]}`;
+
+                const success = await executeTitanCommand({
+                    action: 'commit',
+                    commit_type: 'web_scrape',
+                    memory_text: chunkWithHeader,
+                    override_score: scrapeScore
+                });
+                if (success) successCount++;
+            }
+
+            if (successCount === chunks.length) {
+                updateStatus(`CORE INGEST COMPLETE (LVL ${scrapeScore})`, 'success');
+                await saveMessage('bot', `[SYSTEM]: Web Data Anchored. ${chunks.length} shards created from ${scrapeUrl}.`, 'system');
+
+                // Optional: Ask Titan to summarize what it just ate
+                await callGemini(`[SYSTEM EVENT]: I have successfully anchored content from ${scrapeUrl} into the Core. Briefly confirm the ingestion and summarize the topic.`, messages);
+            } else {
+                updateStatus("PARTIAL INGEST FAILURE", 'error');
+            }
+        }
         // 3. BRANCH: ANALYZE ONLY (CHAT CONTEXT)
         else {
             const systemInjection = `[SYSTEM EVENT]: The Scout Node has retrieved raw intelligence for inspection.
@@ -644,7 +663,7 @@ ${scrapedText}
 *** END SCOUT DATA ***
 
 INSTRUCTION: Analyze this data for the Architect.`;
-            
+
             await callGemini(systemInjection, messages);
         }
 
@@ -655,14 +674,14 @@ INSTRUCTION: Analyze this data for the Architect.`;
     // --- MAIN SEND LOGIC ---
     const handleSend = async (e) => {
         e.preventDefault();
-        
+
         // --- 1. INTERCEPT SCRAPE COMMAND ---
         const scrapeMatch = input.match(/\[SCRAPE\]\s+((?:https?:\/\/|www\.)[^\s]+)/i);
-        
+
         if (scrapeMatch) {
             let url = scrapeMatch[1];
             if (!url.startsWith('http')) url = 'https://' + url;
-            
+
             // PAUSE AND OPEN UI
             setScrapeUrl(url);
             setShowScrapePanel(true);
@@ -677,26 +696,26 @@ INSTRUCTION: Analyze this data for the Architect.`;
         // --- COMMAND PARSING (Delete/Purge) ---
         const rangeMatch = userInput.match(/(?:delete range|purge range)\s+(\d+)-(\d+)/i);
         if (rangeMatch) {
-             const startId = parseInt(rangeMatch[1]);
-             const endId = parseInt(rangeMatch[2]);
-             if (endId - startId > 500 && !window.confirm(`Are you sure you want to purge ${endId - startId} memories?`)) return;
-             setLoading(true);
-             await saveMessage('user', userInput);
-             await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
-             setLoading(false);
-             setInput('');
-             return;
+            const startId = parseInt(rangeMatch[1]);
+            const endId = parseInt(rangeMatch[2]);
+            if (endId - startId > 500 && !window.confirm(`Are you sure you want to purge ${endId - startId} memories?`)) return;
+            setLoading(true);
+            await saveMessage('user', userInput);
+            await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
+            setLoading(false);
+            setInput('');
+            return;
         }
 
         const deleteMatch = userInput.match(/(?:delete id|purge)\s+(\d+)/i);
         if (deleteMatch) {
-             const targetId = parseInt(deleteMatch[1]);
-             setLoading(true);
-             await saveMessage('user', userInput);
-             await executeTitanCommand({ action: 'delete', target_id: targetId });
-             setLoading(false);
-             setInput('');
-             return; 
+            const targetId = parseInt(deleteMatch[1]);
+            setLoading(true);
+            await saveMessage('user', userInput);
+            await executeTitanCommand({ action: 'delete', target_id: targetId });
+            setLoading(false);
+            setInput('');
+            return;
         }
 
         // --- STANDARD CHAT & FILE LOGIC ---
@@ -708,21 +727,21 @@ INSTRUCTION: Analyze this data for the Architect.`;
             reader.onload = async (ev) => {
                 const fileContent = ev.target.result;
                 if (uploadMode === 'core') {
-                     const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
-                     updateStatus(`SHARDING FILE: ${chunks.length} FRAGMENTS...`, 'working');
-                     let successCount = 0;
-                     for (let i = 0; i < chunks.length; i++) {
-                         updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
-                         const chunkWithHeader = `[FILE: ${file.name} | PART ${i+1}/${chunks.length}]\n\n${chunks[i]}`;
-                         const success = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: chunkWithHeader, override_score: coreScore });
-                         if (success) successCount++;
-                     }
-                     if (successCount === chunks.length) {
-                         const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
-                         await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: masterPayload, override_score: coreScore });
-                         updateStatus(`ARCHIVE COMPLETE`, 'success');
-                         await saveMessage('bot', `[SYSTEM]: File processed. ${chunks.length} shards + 1 master anchor created. Assigned Priority Index: ${coreScore}.`, 'system');
-                     }
+                    const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
+                    updateStatus(`SHARDING FILE: ${chunks.length} FRAGMENTS...`, 'working');
+                    let successCount = 0;
+                    for (let i = 0; i < chunks.length; i++) {
+                        updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
+                        const chunkWithHeader = `[FILE: ${file.name} | PART ${i + 1}/${chunks.length}]\n\n${chunks[i]}`;
+                        const success = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: chunkWithHeader, override_score: coreScore });
+                        if (success) successCount++;
+                    }
+                    if (successCount === chunks.length) {
+                        const masterPayload = `[MASTER FILE ARCHIVE]: ${file.name}\n\n${fileContent}`;
+                        await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: masterPayload, override_score: coreScore });
+                        updateStatus(`ARCHIVE COMPLETE`, 'success');
+                        await saveMessage('bot', `[SYSTEM]: File processed. ${chunks.length} shards + 1 master anchor created. Assigned Priority Index: ${coreScore}.`, 'system');
+                    }
                 } else {
                     await callGemini(`${userInput}\nFILE CONTENT:\n${fileContent}`, messages);
                 }
@@ -753,7 +772,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
     };
 
     const visibleMessages = messages.filter(m => {
-        if (!m.timestamp) return true; 
+        if (!m.timestamp) return true;
         return m.timestamp.toMillis() > viewSince;
     });
 
@@ -764,7 +783,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
     };
 
     const getStatusColor = () => {
-        switch(statusType) {
+        switch (statusType) {
             case 'success': return 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse';
             case 'error': return 'text-rose-500 drop-shadow-[0_0_8px_rgba(244,63,94,0.8)] animate-pulse';
             case 'working': return 'text-amber-400 animate-pulse';
@@ -773,20 +792,20 @@ INSTRUCTION: Analyze this data for the Architect.`;
     };
 
     return (
-        <div 
+        <div
             className="fixed inset-0 w-full h-full overflow-hidden font-sans"
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            <div 
+            <div
                 className="fixed top-0 left-0 w-full h-[120vh] -z-50 bg-slate-900 bg-cover bg-center transition-transform duration-[60s] ease-in-out scale-110 animate-drift"
-                style={{ 
+                style={{
                     backgroundImage: `url(${BACKGROUND_IMAGE_URL})`,
                     animation: 'drift 60s infinite alternate ease-in-out'
                 }}
             />
-            <div 
+            <div
                 className="fixed top-0 left-0 w-full h-[120vh] -z-40 opacity-20 pointer-events-none"
                 style={{
                     backgroundImage: `linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px)`,
@@ -798,40 +817,78 @@ INSTRUCTION: Analyze this data for the Architect.`;
             {/* --- NEW: SYNC KILL SWITCH MODAL WITH LIVE STATS --- */}
             {/* --- UPDATED SYNC MODAL --- */}
             {isSyncing && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-slate-900 border border-purple-500/30 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center relative overflow-hidden">
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md animate-fade-in">
+                    <div className="bg-slate-900 border border-purple-500/30 p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent animate-scan" />
 
-                        <h2 className="text-xl font-bold text-white mb-2">Neural Weave Active</h2>
+                        {/* --- PHASE 1: CONFIGURATION --- */}
+                        {syncPhase === 'CONFIG' && (
+                            <div className="animate-fade-in relative">
+                                {/* --- NEW: TOP RIGHT CLOSE BUTTON --- */}
+                                <button
+                                    onClick={closeSyncConfig}
+                                    className="absolute -top-4 -right-4 p-2 text-slate-500 hover:text-white transition-colors"
+                                >
+                                    <Minimize2 size={18} />
+                                </button>
 
-                        {/* --- NEW: THRESHOLD INPUT --- */}
-                        <div className="mb-4 p-3 bg-black/40 rounded-xl border border-white/5">
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest block mb-2">
-                                Significance Gate (1-9)
-                            </label>
-                            <div className="flex items-center justify-center gap-3">
-                                <input
-                                    type="number"
-                                    min="1"
-                                    max="9"
-                                    value={syncThreshold} // You'll need to define this state [syncThreshold, setSyncThreshold] = useState(5)
-                                    onChange={(e) => setSyncThreshold(parseInt(e.target.value))}
-                                    className="w-16 bg-slate-950 border border-purple-500/30 rounded-lg p-2 text-center text-purple-400 font-mono text-lg focus:outline-none focus:border-purple-500"
-                                />
-                                <div className="text-left">
-                                    <p className="text-[9px] text-slate-400 leading-tight">
-                                        {syncThreshold > 6 ? "ECONOMY: Only weaving Core Memories." :
-                                            syncThreshold < 4 ? "BURN: Weaving everything (Expensive)." :
-                                                "BALANCED: Weaving meaningful signal."}
+                                <h2 className="text-xl font-bold text-white mb-4 uppercase tracking-tighter">Significance Gate</h2>
+
+                                <div className="mb-6 p-4 bg-black/40 rounded-xl border border-white/5">
+                                    <input
+                                        type="number" min="1" max="9" autoFocus
+                                        value={syncThreshold}
+                                        onFocus={(e) => e.target.select()}
+                                        onChange={(e) => setSyncThreshold(parseInt(e.target.value))}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSyncHolograms();
+                                            if (e.key === 'Escape') closeSyncConfig(); // ESC to close
+                                        }}
+                                        className="w-20 bg-slate-950 border border-purple-500/40 rounded-lg p-3 text-center text-purple-400 font-mono text-2xl focus:outline-none focus:border-purple-500 shadow-inner"
+                                    />
+                                    <p className="text-[10px] text-slate-400 mt-4 leading-relaxed uppercase tracking-widest font-bold">
+                                        {syncThreshold > 6 ? "Economy: Core Signal Only" :
+                                            syncThreshold < 4 ? "Burn: High-Density Weave" :
+                                                "Balanced Resonance"}
                                     </p>
                                 </div>
-                            </div>
-                        </div>
 
-                        <p className="text-purple-300 font-mono text-lg font-bold mb-1">
-                            {syncStats.mode === 'SCANNING' ? 'SCANNING SECTORS...' : `${syncStats.mode} NODES`}
-                        </p>
-                        {/* ... rest of the modal buttons ... */}
+                                <div className="space-y-3">
+                                    <button
+                                        onClick={handleSyncHolograms}
+                                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold tracking-widest transition-all shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2"
+                                    >
+                                        <Zap size={16} /> INITIALIZE WEAVE
+                                    </button>
+
+                                    {/* --- NEW: CANCEL BUTTON --- */}
+                                    <button
+                                        onClick={closeSyncConfig}
+                                        className="w-full py-2 text-slate-500 hover:text-slate-300 text-[10px] uppercase font-bold tracking-[0.2em] transition-colors"
+                                    >
+                                        Cancel Sequence
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* --- PHASE 2: ACTIVE SYNC (The Counter) --- */}
+                        {syncPhase === 'ACTIVE' && (
+                            <div className="animate-pulse-slow">
+                                <RefreshCw size={40} className="mx-auto mb-4 text-purple-400 animate-spin-slow" />
+                                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-[0.3em] mb-1">Neural Weave Active</h2>
+                                <p className="text-4xl font-mono text-white font-black mb-2">{syncStats.count}</p>
+                                <p className="text-[10px] text-purple-400 font-bold uppercase tracking-widest mb-6">
+                                    {syncStats.mode} NODES
+                                </p>
+                                <button
+                                    onClick={handleStopSync}
+                                    className="px-6 py-2 border border-rose-500/50 text-rose-400 hover:bg-rose-500/10 rounded-lg text-xs font-bold transition-all"
+                                >
+                                    ABORT SEQUENCE
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -847,16 +904,16 @@ INSTRUCTION: Analyze this data for the Architect.`;
             )}
 
             <div className="relative z-10 flex flex-col h-full p-6">
-                
+
                 {/* --- HEADER (Z-30 FIXED) --- */}
                 <header className="flex justify-between items-center bg-slate-900/40 backdrop-blur-md border-b border-white/10 p-4 rounded-xl shadow-2xl mb-6 relative z-30">
                     <h1 className="text-xl font-bold flex items-center gap-3 italic tracking-tighter text-slate-100">
-                        <Zap className="text-cyan-400 fill-cyan-400/20" /> 
+                        <Zap className="text-cyan-400 fill-cyan-400/20" />
                         <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-slate-400">
                             {APP_TITLE}
                         </span>
                     </h1>
-                    
+
                     <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/50 border border-white/10">
                         <div className={`w-2 h-2 rounded-full ${isFallbackActive ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
                         <span className="text-[10px] font-mono text-slate-300 uppercase tracking-tighter">
@@ -869,8 +926,8 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                 syncShieldStatus();
                             }}
                             className={`ml-2 text-[9px] px-2 py-0.5 rounded border transition-all ${activeModel === 'gemini-3-flash-preview'
-                                    ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)]'
-                                    : 'bg-slate-700 border-white/10 text-slate-400 hover:text-white'
+                                ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)]'
+                                : 'bg-slate-700 border-white/10 text-slate-400 hover:text-white'
                                 }`}
                         >
                             {activeModel === 'gemini-3-flash-preview' ? 'LOCKED 3.0' : 'FORCE 3.0'}
@@ -903,10 +960,10 @@ INSTRUCTION: Analyze this data for the Architect.`;
                             </Tooltip>
                             {showMenu && (
                                 <div className="absolute right-0 mt-2 w-64 bg-slate-900/95 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
-                                    
+
                                     {/* --- ZONE 1: SYSTEM SAFE COMMANDS --- */}
                                     <div className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-black/20">Local Systems</div>
-                                    
+
                                     <button onClick={() => { executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') }); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <FileText size={16} className="text-yellow-400" /> Generate Summary
                                     </button>
@@ -915,7 +972,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                     </button>
 
                                     <button onClick={() => setTooltipsEnabled(!tooltipsEnabled)} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
-                                        <HelpCircle size={16} className={tooltipsEnabled ? "text-emerald-400" : "text-slate-500"} /> 
+                                        <HelpCircle size={16} className={tooltipsEnabled ? "text-emerald-400" : "text-slate-500"} />
                                         {tooltipsEnabled ? "HUD: Active" : "HUD: Disabled"}
                                     </button>
                                     <button onClick={handleClearChat} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 text-slate-400 flex items-center gap-3 transition">
@@ -931,8 +988,8 @@ INSTRUCTION: Analyze this data for the Architect.`;
 
                                     {/* --- ZONE 2: TITAN PROTOCOLS (DANGER ZONE) --- */}
                                     <div className="px-4 py-2 text-[10px] font-bold text-red-500/80 uppercase tracking-widest bg-red-950/20 border-t border-white/5">Titan Protocols</div>
-                                    
-                                    <button onClick={handleSyncHolograms} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
+
+                                    <button onClick={openSyncConfig} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
                                         <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
                                     </button>
 
@@ -1002,16 +1059,16 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                     <div className="space-y-2">
                                         <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Mission Profile</label>
                                         <div className="flex bg-slate-950 rounded-lg p-1 border border-white/5">
-                                            <button 
+                                            <button
                                                 type="button"
-                                                onClick={() => setScrapeMode('chat')} 
+                                                onClick={() => setScrapeMode('chat')}
                                                 className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-bold transition-all ${scrapeMode === 'chat' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
                                             >
                                                 <MessageSquare size={14} /> Discuss
                                             </button>
-                                            <button 
+                                            <button
                                                 type="button"
-                                                onClick={() => setScrapeMode('core')} 
+                                                onClick={() => setScrapeMode('core')}
                                                 className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-bold transition-all ${scrapeMode === 'core' ? 'bg-pink-600 text-white shadow-md shadow-pink-500/20' : 'text-slate-500 hover:text-slate-300'}`}
                                             >
                                                 <Database size={14} /> Anchor
@@ -1031,11 +1088,10 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                                     key={num}
                                                     type="button"
                                                     onClick={() => setScrapeScore(num)}
-                                                    className={`w-8 h-8 rounded-md text-xs font-bold font-mono transition-all ${
-                                                        scrapeScore === num 
-                                                            ? 'bg-pink-600 text-white shadow-[0_0_10px_rgba(236,72,153,0.6)] scale-110' 
-                                                            : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
-                                                    }`}
+                                                    className={`w-8 h-8 rounded-md text-xs font-bold font-mono transition-all ${scrapeScore === num
+                                                        ? 'bg-pink-600 text-white shadow-[0_0_10px_rgba(236,72,153,0.6)] scale-110'
+                                                        : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+                                                        }`}
                                                 >
                                                     {num}
                                                 </button>
@@ -1043,9 +1099,9 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <button 
-                                    type="button" 
+
+                                <button
+                                    type="button"
                                     onClick={executeScrape}
                                     className={`w-full py-3 rounded-xl font-bold tracking-widest text-white shadow-lg transition-all ${scrapeMode === 'core' ? 'bg-pink-600 hover:bg-pink-500 shadow-pink-500/20' : 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-500/20'}`}
                                 >
@@ -1053,7 +1109,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                 </button>
                             </div>
                         )}
-                        
+
                         {/* --- FILE STAGING PANEL --- */}
                         {file && !showScrapePanel && (
                             <div className="absolute bottom-24 left-0 right-0 mx-4 bg-slate-900/95 border border-cyan-500/30 rounded-2xl p-4 shadow-[0_0_30px_rgba(8,145,178,0.2)] animate-fade-in-up backdrop-blur-xl z-50">
@@ -1074,16 +1130,16 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                     <div className="space-y-2">
                                         <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Target Protocol</label>
                                         <div className="flex bg-slate-950 rounded-lg p-1 border border-white/5">
-                                            <button 
+                                            <button
                                                 type="button"
-                                                onClick={() => setUploadMode('chat')} 
+                                                onClick={() => setUploadMode('chat')}
                                                 className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-bold transition-all ${uploadMode === 'chat' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
                                             >
                                                 <MessageSquare size={14} /> Analyze (Chat)
                                             </button>
-                                            <button 
+                                            <button
                                                 type="button"
-                                                onClick={() => setUploadMode('core')} 
+                                                onClick={() => setUploadMode('core')}
                                                 className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-bold transition-all ${uploadMode === 'core' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300'}`}
                                             >
                                                 <Database size={14} /> Anchor (Core)
@@ -1102,11 +1158,10 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                                     key={num}
                                                     type="button"
                                                     onClick={() => setCoreScore(num)}
-                                                    className={`w-8 h-8 rounded-md text-xs font-bold font-mono transition-all ${
-                                                        coreScore === num 
-                                                            ? 'bg-cyan-600 text-white shadow-[0_0_10px_rgba(8,145,178,0.6)] scale-110' 
-                                                            : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
-                                                    }`}
+                                                    className={`w-8 h-8 rounded-md text-xs font-bold font-mono transition-all ${coreScore === num
+                                                        ? 'bg-cyan-600 text-white shadow-[0_0_10px_rgba(8,145,178,0.6)] scale-110'
+                                                        : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+                                                        }`}
                                                 >
                                                     {num}
                                                 </button>
@@ -1128,7 +1183,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                         <div className="relative" ref={emojiRef}>
                             <Tooltip text="Add Emoji" enabled={tooltipsEnabled}>
                                 <button
-                                    type="button" 
+                                    type="button"
                                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                                     className={`p-3.5 rounded-xl transition-all duration-300 mb-1 border ${showEmojiPicker ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-slate-800/50 border-white/10 text-slate-400 hover:bg-slate-700 hover:text-white'}`}
                                 >
@@ -1150,9 +1205,9 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                 </div>
                             )}
                         </div>
-                        
-                        <textarea 
-                            value={input} 
+
+                        <textarea
+                            value={input}
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
                             placeholder={file ? (uploadMode === 'core' ? "Add note to permanent record..." : "Ask Titan about this file...") : (showScrapePanel ? "System Pause: Awaiting Mission Control..." : "Transmit signal to Titan...")}
@@ -1160,7 +1215,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                             disabled={loading || showScrapePanel}
                             rows={1}
                         />
-                        
+
                         <Tooltip text="Transmit" enabled={tooltipsEnabled}>
                             <button type="submit" disabled={loading} className="bg-cyan-600/90 hover:bg-cyan-500 p-3.5 rounded-xl text-white shadow-lg hover:shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all duration-300 mb-1 border border-cyan-400/30 disabled:opacity-50 disabled:shadow-none">
                                 <Send size={20} />
@@ -1169,7 +1224,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                     </form>
                 </footer>
             </div>
-            
+
             <style jsx>{`
                 @keyframes drift {
                     0% { transform: scale(1.1); }
@@ -1186,7 +1241,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                     animation: scan 2s linear infinite;
                 }
             `}</style>
-                {/* --- 3D GRAPH OVERLAY --- */ }
+            {/* --- 3D GRAPH OVERLAY --- */}
             {
                 showGraph && (
                     <TitanGraph
