@@ -211,12 +211,12 @@ const App = () => {
         }
     };
 
-// Run this check every minute
-useEffect(() => {
-    syncShieldStatus();
-    const interval = setInterval(syncShieldStatus, 60000);
-    return () => clearInterval(interval);
-}, []);
+    // Run this check every minute
+    useEffect(() => {
+        syncShieldStatus();
+        const interval = setInterval(syncShieldStatus, 60000);
+        return () => clearInterval(interval);
+    }, []);
     
     // --- FILE UPLOAD LOGIC ---
     const [uploadMode, setUploadMode] = useState('chat'); // 'chat' or 'core'
@@ -844,7 +844,22 @@ INSTRUCTION: Analyze this data for the Architect.`;
                         <span className="text-[10px] font-mono text-slate-300 uppercase tracking-tighter">
                             {activeModel}
                         </span>
-                        {isFallbackActive && (
+
+                        <button
+                            onClick={async () => {
+                                const res = await fetch(`${WORKER_ENDPOINT}admin/shield/toggle_3`, { method: 'POST' });
+                                syncShieldStatus();
+                            }}
+                            className={`ml-2 text-[9px] px-2 py-0.5 rounded border transition-all ${activeModel === 'gemini-3-flash-preview'
+                                    ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)]'
+                                    : 'bg-slate-700 border-white/10 text-slate-400 hover:text-white'
+                                }`}
+                        >
+                            {activeModel === 'gemini-3-flash-preview' ? 'LOCKED 3.0' : 'FORCE 3.0'}
+                        </button>
+
+                        {/* ONLY show RESET if we are in fallback AND NOT manually locked */}
+                        {isFallbackActive && activeModel !== 'gemini-3-flash-preview' && (
                             <button
                                 onClick={async () => {
                                     await fetch(`${WORKER_ENDPOINT}admin/shield/reset`, { method: 'POST' });
