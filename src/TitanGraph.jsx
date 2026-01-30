@@ -7,49 +7,66 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     const [loading, setLoading] = useState(true);
     const fgRef = useRef();
 
+    // --- LIVE DATA LOOP ---
     useEffect(() => {
-        // Fetch the topology from the Backend
-        fetch(`${workerEndpoint}graph`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.nodes && data.links) {
-                    
-                    // --- UPGRADE 1: THE HALO KILLER ---
-                    // Create a Set of all IDs that are actually part of a link
-                    const linkedIds = new Set();
-                    data.links.forEach(l => {
-                        // Handle both object refs and string IDs
-                        const s = typeof l.source === 'object' ? l.source.id : l.source;
-                        const t = typeof l.target === 'object' ? l.target.id : l.target;
-                        linkedIds.add(s);
-                        linkedIds.add(t);
-                    });
+        let isMounted = true;
 
-                    // Only keep nodes that have a link OR are high-value "Core Memories"
-                    const cleanNodes = data.nodes.filter(n => linkedIds.has(n.id) || n.val > 7);
+        const fetchData = () => {
+            fetch(`${workerEndpoint}graph`)
+                .then(res => res.json())
+                .then(data => {
+                    if (!isMounted) return;
                     
-                    setGraphData({ nodes: cleanNodes, links: data.links });
-                }
-                setLoading(false);
-            })
-            .catch(err => {
-                console.error("Titan Graph Link Failed:", err);
-                setLoading(false);
-            });
+                    if (data.nodes && data.links) {
+                        // --- THE HALO KILLER ---
+                        // Only show nodes that have connections OR are Core Memories
+                        const linkedIds = new Set();
+                        data.links.forEach(l => {
+                            const s = typeof l.source === 'object' ? l.source.id : l.source;
+                            const t = typeof l.target === 'object' ? l.target.id : l.target;
+                            linkedIds.add(s);
+                            linkedIds.add(t);
+                        });
+
+                        const cleanNodes = data.nodes.filter(n => linkedIds.has(n.id) || n.val > 7);
+                        
+                        // ONLY UPDATE if the counts are different (prevents jitter)
+                        setGraphData(prev => {
+                            if (prev.nodes.length !== cleanNodes.length || prev.links.length !== data.links.length) {
+                                return { nodes: cleanNodes, links: data.links };
+                            }
+                            return prev;
+                        });
+                    }
+                    setLoading(false);
+                })
+                .catch(err => {
+                    console.error("Titan Graph Link Failed:", err);
+                    if (isMounted) setLoading(false);
+                });
+        };
+
+        // 1. Fetch Immediately
+        fetchData();
+
+        // 2. Poll every 5 seconds (Live Mode)
+        const interval = setInterval(fetchData, 5000);
+
+        // Cleanup on close
+        return () => {
+            isMounted = false;
+            clearInterval(interval);
+        };
     }, [workerEndpoint]);
 
+    // --- PHYSICS TUNING ---
     useEffect(() => {
         if (fgRef.current) {
-            // --- UPGRADE 2: THE BIG BANG (PHYSICS) ---
-            
-            // 1. Massive Repulsion: Push nodes apart aggressively (-800)
+            // Massive Repulsion: Push nodes apart aggressively (-800)
             fgRef.current.d3Force('charge').strength(-800);
-
-            // 2. Loose Links: Let the connections be long and relaxed (150)
+            // Loose Links: Let the connections be long and relaxed (150)
             fgRef.current.d3Force('link').distance(150);
-            
-            // 3. Center Gravity: Pull the whole cloud gently to the center (so it doesn't fly off screen)
-            // Strength 0.05 is gentle.
+            // Center Gravity: Pull the whole cloud gently to the center
             fgRef.current.d3Force('center').strength(0.05);
         }
     }, [graphData]); // Re-run if data changes
@@ -93,9 +110,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                     graphData={graphData}
                     backgroundColor="#020617" 
                     
-                    // --- UPGRADE 3: WARMUP ---
-                    // Calculate layout for 100 frames *before* showing it. 
-                    // Prevents the "explosion" animation and starts stable.
+                    // Warmup prevents "explosion" animation
                     warmupTicks={100} 
                     cooldownTicks={0}
 
