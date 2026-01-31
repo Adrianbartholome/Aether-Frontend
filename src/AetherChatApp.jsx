@@ -484,34 +484,64 @@ const App = () => {
         setIsAbortPending(false);
         setSyncStats({ count: 0, synapses: 0, mode: 'INITIALIZING' });
         stopSyncRef.current = false;
-        
+
         let totalNodes = 0;
         let totalSynapses = 0;
 
         while (!stopSyncRef.current) {
-            try {
-                const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ gate_threshold: syncThreshold })
-                });
-                const data = await res.json();
+    updateStatus("SCANNING CORE...", "working");
+    try {
+        const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gate_threshold: syncThreshold })
+        });
+        const data = await res.json();
 
-                if (data.status === "SUCCESS") {
-                    const batchNodes = data.queued_count || 0;
-                    const batchSynapses = data.synapse_count || 0;
+        if (data.status === "SUCCESS") {
+            const batchNodes = data.queued_count || 0;
+            const batchSynapses = data.synapse_count || 0;
 
-                    if (batchNodes > 0) {
-                        totalNodes += batchNodes;
-                        totalSynapses += batchSynapses;
-                        setSyncStats({ count: totalNodes, synapses: totalSynapses, mode: data.mode });
-                        await new Promise(r => setTimeout(r, 3000));
-                    } else if (data.mode === "IDLE") {
-                        break; 
-                    }
-                } else { break; }
-            } catch (e) { break; }
-        }
+            if (batchNodes > 0) {
+                const modeText = data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING";
+                
+                // --- THE SMOOTH TICKER ---
+                // We divide the batch into steps to animate over ~2.5 seconds
+                const steps = 10; 
+                const nodeStep = batchNodes / steps;
+                const synapseStep = batchSynapses / steps;
+
+                for (let i = 1; i <= steps; i++) {
+                    if (stopSyncRef.current) break;
+
+                    setSyncStats(prev => ({
+                        count: Math.round(totalNodes + (nodeStep * i)),
+                        synapses: Math.round(totalSynapses + (synapseStep * i)),
+                        mode: modeText
+                    }));
+
+                    // 200ms x 10 steps = 2 seconds of active counting
+                    await new Promise(r => setTimeout(r, 200));
+                }
+
+                // Lock in the final totals for this batch
+                totalNodes += batchNodes;
+                totalSynapses += batchSynapses;
+                
+                updateStatus(`${modeText} COMPLETED: ${totalNodes} TOTAL`, "working");
+                
+                // Small extra padding before the next batch request
+                await new Promise(r => setTimeout(r, 1000));
+
+            } else if (data.mode === "IDLE") {
+                break;
+            }
+        } else { break; }
+    } catch (e) { 
+        console.error("Sync Failure:", e);
+        break; 
+    }
+}
 
         // --- THE "POST-FLIGHT" LOGIC ---
         if (stopSyncRef.current) {
@@ -528,8 +558,8 @@ const App = () => {
         stopSyncRef.current = true;
 
         // 2. Show the "commencing when safe" message immediately
-        setIsAbortPending(true); 
-    
+        setIsAbortPending(true);
+
         // 3. Update the bottom status bar for extra clarity
         updateStatus("ABORT SIGNAL SENT - PARKING SHARD", "error");
     };
