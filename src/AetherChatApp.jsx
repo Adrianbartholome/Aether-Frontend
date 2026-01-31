@@ -486,60 +486,54 @@ const App = () => {
     stopSyncRef.current = false;
 
     let totalNodes = 0;
-    let totalSynapses = 0;
+let totalSynapses = 0;
 
-    // --- THE MAIN SYNC LOOP ---
-    while (!stopSyncRef.current) {
-        updateStatus("SCANNING CORE...", "working");
-        try {
-            const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ gate_threshold: syncThreshold })
-            });
-            const data = await res.json();
+while (!stopSyncRef.current) {
+    // 1. Update status to show current target batch
+    updateStatus(`SCANNING CORE: NODES ${totalNodes + 1} - ${totalNodes + 10}...`, "working");
+    
+    try {
+        const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gate_threshold: syncThreshold })
+        });
+        const data = await res.json();
 
-            // DIAGNOSTIC LOG: Check your browser console (F12) to see this!
-            console.log(`[TITAN-HUD] Batch Received: Nodes=${data.queued_count}, Synapses=${data.synapse_count}`);
+        if (data.status === "SUCCESS") {
+            const batchNodes = data.queued_count || 0;
+            const batchSynapses = data.synapse_count || 0;
 
-            if (data.status === "SUCCESS") {
-                const batchNodes = data.queued_count || 0;
-                const batchSynapses = data.synapse_count || 0;
+            if (batchNodes > 0 || batchSynapses > 0) {
+                // --- THE INSTANT ANCHOR ---
+                // We update the totals BEFORE we touch the UI state.
+                totalNodes += batchNodes;
+                totalSynapses += batchSynapses;
 
-                if (batchNodes > 0 || batchSynapses > 0) {
-                    const modeText = data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING";
-                    const steps = 10;
-                    const nodeStep = batchNodes / steps;
-                    const synapseStep = batchSynapses / steps;
+                // 2. Push the ACTUAL totals to the HUD immediately.
+                setSyncStats({
+                    count: totalNodes,
+                    synapses: totalSynapses,
+                    mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING"
+                });
 
-                    for (let i = 1; i <= steps; i++) {
-                        if (stopSyncRef.current) break;
+                // 3. Log success to the status bar
+                updateStatus(`ANCHORED: +${batchSynapses} SYNAPSES (TOTAL: ${totalSynapses})`, "success");
+                
+                // Small breather to let the UI render before the next heavy API call
+                await new Promise(r => setTimeout(r, 500));
 
-                        setSyncStats(prev => ({
-                            count: Math.round(totalNodes + (nodeStep * i)),
-                            synapses: Math.round(totalSynapses + (synapseStep * i)),
-                            mode: modeText
-                        }));
-
-                        await new Promise(r => setTimeout(r, 200));
-                    }
-
-                    totalNodes += batchNodes;
-                    totalSynapses += batchSynapses;
-                    updateStatus(`${modeText} COMPLETED: ${totalNodes} TOTAL`, "working");
-                    await new Promise(r => setTimeout(r, 1000));
-
-                } else if (data.mode === "IDLE") {
-                    break; 
-                }
-            } else {
-                break;
+            } else if (data.mode === "IDLE") {
+                break; 
             }
-        } catch (e) {
-            console.error("Sync Failure:", e);
-            break;
+        } else { 
+            break; 
         }
-    } 
+    } catch (e) { 
+        console.error("Sync Failure:", e);
+        break; 
+    }
+}
 
     // --- THE "POST-FLIGHT" LOGIC (Now safely inside the function) ---
     if (stopSyncRef.current) {
