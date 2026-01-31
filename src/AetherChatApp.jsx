@@ -217,6 +217,25 @@ const App = () => {
         }
     };
 
+    // --- RECOVERY CHECK ON MOUNT ---
+    useEffect(() => {
+        const activeSession = localStorage.getItem('aether_sync_active');
+        const savedStats = localStorage.getItem('aether_sync_stats');
+
+        if (activeSession && savedStats) {
+            try {
+                const parsedStats = JSON.parse(savedStats);
+                setSyncStats(parsedStats);
+                setSyncPhase('RECOVERED'); // New Phase
+                setIsSyncing(true);
+                updateStatus("SESSION RESTORED: AWAITING INPUT", "working");
+            } catch (e) {
+                // If data is corrupt, clear it
+                localStorage.removeItem('aether_sync_active');
+            }
+        }
+    }, []);
+
     // Run this check every minute
     useEffect(() => {
         syncShieldStatus();
@@ -479,25 +498,29 @@ const App = () => {
         setShowMenu(false);
     };
 
-    const handleSyncHolograms = async () => {
+    // Update signature to accept resume values
+    const handleSyncHolograms = async (resumeNodes = 0, resumeSynapses = 0) => {
         setSyncPhase('ACTIVE');
         setIsAbortPending(false);
         stopSyncRef.current = false;
+        
+        localStorage.setItem('aether_sync_active', 'true');
 
-        // 1. GET INITIAL BASELINE (Where do we start?)
+        // 1. PULSE SETUP
         let startSynapseCount = 0;
         try {
             const baseRes = await fetch(`${WORKER_ENDPOINT}admin/pulse`);
             const baseData = await baseRes.json();
-            startSynapseCount = baseData.total_synapses || 0;
+            startSynapseCount = (baseData.total_synapses || 0) - resumeSynapses;
         } catch (e) {
             console.error("Pulse Check Failed", e);
         }
 
-        let totalNodes = 0;
+        let totalNodes = resumeNodes;
+        // NEW: Track what we are aiming for, so the UI is never 0
+        let totalTargeted = resumeNodes; 
         
-        // 2. START THE PULSE (The "Tick" Generator)
-        // This runs independently of the heavy batch job
+        // 2. PULSE TICKER
         const pulseInterval = setInterval(async () => {
             if (stopSyncRef.current) return;
             try {
@@ -505,23 +528,33 @@ const App = () => {
                 const data = await res.json();
                 if (data.status === "SUCCESS") {
                     const currentTotal = data.total_synapses;
-                    // Calculate only the NEW ones created this session
                     const newSynapses = currentTotal - startSynapseCount;
+                    const safeSynapses = newSynapses > 0 ? newSynapses : 0;
                     
-                    // UPDATE THE UI LIVE
-                    setSyncStats(prev => ({
-                        ...prev,
-                        synapses: newSynapses > 0 ? newSynapses : 0
-                    }));
+                    setSyncStats(prev => {
+                        const next = { ...prev, synapses: safeSynapses };
+                        localStorage.setItem('aether_sync_stats', JSON.stringify(next));
+                        return next;
+                    });
                 }
-            } catch (e) { 
-                // Ignore pulse errors, main loop handles criticals
-            }
-        }, 1000); // Tick every 1 second
+            } catch (e) { }
+        }, 1000); 
 
-        // 3. START THE HEAVY BATCH LOOP
+        // 3. HEAVY BATCH LOOP
         while (!stopSyncRef.current) {
-            updateStatus(`SCANNING SECTOR: NODES ${totalNodes + 1} - ${totalNodes + 10}...`, "working");
+            // OPTIMISTIC UPDATE: 
+            // "We are about to process 10 nodes, so show that number immediately."
+            totalTargeted = totalNodes + 10;
+            
+            setSyncStats(prev => ({
+                ...prev,
+                count: totalNodes,      // Confirmed Done
+                targeted: totalTargeted // Currently Processing
+            }));
+
+            const rangeStart = totalNodes + 1;
+            const rangeEnd = totalNodes + 10;
+            updateStatus(`SYNCHRONIZING SECTOR: NODES ${rangeStart} - ${rangeEnd}...`, "working");
 
             try {
                 const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
@@ -533,37 +566,47 @@ const App = () => {
 
                 if (data.status === "SUCCESS") {
                     if (data.mode === "IDLE") {
-                        updateStatus("CORE SYNCHRONIZED", "success");
+                        updateStatus("CORE SYNCHRONIZED: ALL NODES ANCHORED", "success");
+                        // Sync totals so they match at the end
+                        setSyncStats(prev => ({ ...prev, targeted: totalNodes }));
                         break;
                     }
 
                     const batchNodes = typeof data.queued_count === 'number' ? data.queued_count : 0;
-                    if (batchNodes === 0) break; // Safety break
+                    if (batchNodes === 0) break; 
 
                     totalNodes += batchNodes;
+                    
+                    setSyncStats(prev => {
+                        const next = { 
+                            ...prev, 
+                            count: totalNodes,
+                            // Keep targeted ahead or matched
+                            targeted: totalNodes + 10,
+                            mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "ANCHORING" 
+                        };
+                        localStorage.setItem('aether_sync_stats', JSON.stringify(next));
+                        return next;
+                    });
 
-                    // Update Node Count (Synapses are handled by the Pulse now)
-                    setSyncStats(prev => ({
-                        ...prev,
-                        count: totalNodes,
-                        mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "ANCHORING"
-                    }));
-
-                    // Visual feedback for the batch completion
-                    updateStatus(`BATCH SECURED. PULSE ACTIVE.`, "neutral");
-                    await new Promise(r => setTimeout(r, 500));
+                    updateStatus(`SECTOR SECURED. PROCESSING NEXT BATCH...`, "neutral");
+                    await new Promise(r => setTimeout(r, 1000));
                 } else {
                     break;
                 }
             } catch (e) {
                 console.error("Sync Failure:", e);
-                updateStatus("LINK FAILURE", "error");
-                break;
+                updateStatus("LINK FAILURE - RETRYING...", "error");
+                await new Promise(r => setTimeout(r, 2000));
             }
         }
 
-        // CLEANUP
         clearInterval(pulseInterval);
+
+        if (!stopSyncRef.current) {
+            localStorage.removeItem('aether_sync_active');
+            localStorage.removeItem('aether_sync_stats');
+        }
 
         if (stopSyncRef.current) {
             setSyncPhase('SUMMARY');
@@ -909,8 +952,13 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                     <p className="text-7xl font-mono text-white font-black mb-4 drop-shadow-[0_0_25px_rgba(168,85,247,0.6)]">
                                         {syncStats.synapses || 0}
                                     </p>
-                                    <div className="px-4 py-1.5 bg-purple-950/30 border border-purple-500/20 rounded-full backdrop-blur-sm">
-                                        <p className="text-[11px] text-purple-300 font-bold uppercase tracking-widest">{syncStats.count} Nodes Integrated</p>
+
+                                    <div className="px-4 py-1.5 bg-purple-950/30 border border-purple-500/20 rounded-full backdrop-blur-sm flex items-center gap-2">
+                                        {/* SHOW TARGETED COUNT ("10") INSTEAD OF COMPLETED ("0") */}
+                                        <p className="text-[11px] text-purple-300 font-bold uppercase tracking-widest">
+                                            {syncStats.targeted || 0} Nodes Processing
+                                        </p>
+                                        <Loader size={10} className="animate-spin text-purple-400" />
                                     </div>
                                 </div>
                                 {!isAbortPending && (
@@ -944,6 +992,50 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                 >
                                     RETURN TO CORE
                                 </button>
+                            </div>
+                        )}
+
+                        {/* --- PHASE: RECOVERED (CRASH DETECTION) --- */}
+                        {syncPhase === 'RECOVERED' && (
+                            <div className="animate-fade-in">
+                                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-6">
+                                    <h2 className="text-amber-400 text-xs font-bold uppercase tracking-[0.3em] mb-1">Session Interrupted</h2>
+                                    <p className="text-[10px] text-slate-400 uppercase">Connection Lost During Sync</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 mb-8">
+                                    <div className="bg-black/40 p-4 rounded-xl border border-white/5">
+                                        <p className="text-2xl font-mono text-white font-bold">{syncStats.count}</p>
+                                        <p className="text-[9px] text-slate-500 uppercase tracking-tighter">Nodes Secured</p>
+                                    </div>
+                                    <div className="bg-black/40 p-4 rounded-xl border border-white/5">
+                                        <p className="text-2xl font-mono text-purple-400 font-bold">{syncStats.synapses}</p>
+                                        <p className="text-[9px] text-slate-500 uppercase tracking-tighter">Synapses Woven</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => {
+                                            // Cancel: Clear storage and close
+                                            localStorage.removeItem('aether_sync_active');
+                                            localStorage.removeItem('aether_sync_stats');
+                                            setIsSyncing(false);
+                                            setSyncPhase('IDLE');
+                                            updateStatus("RECOVERY ABORTED", "neutral");
+                                        }}
+                                        className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold tracking-widest transition-all text-[10px]"
+                                    >
+                                        DISCARD
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            // Resume: Call handler with saved values
+                                            handleSyncHolograms(syncStats.count, syncStats.synapses);
+                                        }}
+                                        className="flex-[2] py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold tracking-widest transition-all text-[10px] shadow-lg shadow-purple-900/20"
+                                    >
+                                        RESUME LINK
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
