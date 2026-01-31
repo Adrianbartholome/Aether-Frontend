@@ -671,7 +671,7 @@ const App = () => {
             action: 'chat', // You'll need to ensure your backend handle_request expects this
             memory_text: query,
             // Optional: send history if your backend doesn't pull it from DB
-            history: context.slice(-10).map(m => `${m.sender}: ${m.text}`).join('\n')
+            history: SYSTEM_PROMPT + "\n\n=== RECENT MEMORY ===\n" + context.slice(-10).map(m => `${m.sender}: ${m.text}`).join('\n')
         };
 
         try {
