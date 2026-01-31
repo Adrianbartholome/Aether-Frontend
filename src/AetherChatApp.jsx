@@ -480,73 +480,63 @@ const App = () => {
     };
 
     const handleSyncHolograms = async () => {
-    setSyncPhase('ACTIVE');
-    setIsAbortPending(false);
-    setSyncStats({ count: 0, synapses: 0, mode: 'INITIALIZING' });
-    stopSyncRef.current = false;
+        setSyncPhase('ACTIVE');
+        setIsAbortPending(false);
+        setSyncStats({ count: 0, synapses: 0, mode: 'INITIALIZING' });
+        stopSyncRef.current = false;
 
-    let totalNodes = 0;
-    let totalSynapses = 0;
+        let totalNodes = 0;
+        let totalSynapses = 0;
 
-    // --- THE MAIN SYNC LOOP ---
-    while (!stopSyncRef.current) {
-        // Update status to show current target batch
-        updateStatus(`SCANNING CORE: NODES ${totalNodes + 1} - ${totalNodes + 10}...`, "working");
+        while (!stopSyncRef.current) {
+            updateStatus(`SCANNING CORE: NODES ${totalNodes + 1} - ${totalNodes + 10}...`, "working");
 
-        try {
-            const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ gate_threshold: syncThreshold })
-            });
-            const data = await res.json();
+            try {
+                const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ gate_threshold: syncThreshold })
+                });
+                const data = await res.json();
 
-            if (data.status === "SUCCESS") {
-                const batchNodes = data.queued_count || 0;
-                const batchSynapses = data.synapse_count || 0;
+                if (data.status === "SUCCESS") {
+                    const batchNodes = data.queued_count || 0;
+                    const batchSynapses = data.synapse_count || 0;
 
-                if (batchNodes > 0 || batchSynapses > 0) {
-                    // --- THE INSTANT ANCHOR ---
-                    // Increment the local variables IMMEDIATELY
-                    totalNodes += batchNodes;
-                    totalSynapses += batchSynapses;
+                    if (batchNodes > 0 || batchSynapses > 0) {
+                        totalNodes += batchNodes;
+                        totalSynapses += batchSynapses;
 
-                    // Push the actual totals to the HUD state immediately
-                    setSyncStats({
-                        count: totalNodes,
-                        synapses: totalSynapses,
-                        mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING"
-                    });
+                        setSyncStats({
+                            count: totalNodes,
+                            synapses: totalSynapses,
+                            mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING"
+                        });
 
-                    // Log success to the status bar
-                    updateStatus(`ANCHORED: +${batchSynapses} SYNAPSES (TOTAL: ${totalSynapses})`, "success");
+                        updateStatus(`ANCHORED: +${batchSynapses} SYNAPSES`, "success");
+                        await new Promise(r => setTimeout(r, 500));
 
-                    // Small breather to let the UI render before the next batch request
-                    await new Promise(r => setTimeout(r, 500));
-
-                } else if (data.mode === "IDLE") {
-                    // Core is clean, breaking loop
+                    } else if (data.mode === "IDLE") {
+                        break;
+                    }
+                } else {
                     break;
                 }
-            } else {
-                // Backend error response, breaking loop
+            } catch (e) {
+                console.error("Sync Failure:", e);
                 break;
             }
-        } catch (e) {
-            console.error("Sync Failure:", e);
-            break;
         }
-    }
 
-    // --- THE POST-FLIGHT LOGIC ---
-    if (stopSyncRef.current) {
-        setSyncPhase('SUMMARY');
-    } else {
-        setIsSyncing(false);
-        setSyncPhase('IDLE');
-    }
-    setIsAbortPending(false);
-};
+        // --- POST-FLIGHT LOGIC (Correctly contained inside the function) ---
+        if (stopSyncRef.current) {
+            setSyncPhase('SUMMARY');
+        } else {
+            setIsSyncing(false);
+            setSyncPhase('IDLE');
+        }
+        setIsAbortPending(false);
+    };
 
     const handleStopSync = () => {
         // 1. Tell the loop to stop on the next check
