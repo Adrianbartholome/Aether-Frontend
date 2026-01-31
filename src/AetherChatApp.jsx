@@ -482,14 +482,46 @@ const App = () => {
     const handleSyncHolograms = async () => {
         setSyncPhase('ACTIVE');
         setIsAbortPending(false);
-        setSyncStats({ count: 0, synapses: 0, mode: 'INITIALIZING' });
         stopSyncRef.current = false;
 
-        let totalNodes = 0;
-        let totalSynapses = 0;
+        // 1. GET INITIAL BASELINE (Where do we start?)
+        let startSynapseCount = 0;
+        try {
+            const baseRes = await fetch(`${WORKER_ENDPOINT}admin/pulse`);
+            const baseData = await baseRes.json();
+            startSynapseCount = baseData.total_synapses || 0;
+        } catch (e) {
+            console.error("Pulse Check Failed", e);
+        }
 
+        let totalNodes = 0;
+        
+        // 2. START THE PULSE (The "Tick" Generator)
+        // This runs independently of the heavy batch job
+        const pulseInterval = setInterval(async () => {
+            if (stopSyncRef.current) return;
+            try {
+                const res = await fetch(`${WORKER_ENDPOINT}admin/pulse`);
+                const data = await res.json();
+                if (data.status === "SUCCESS") {
+                    const currentTotal = data.total_synapses;
+                    // Calculate only the NEW ones created this session
+                    const newSynapses = currentTotal - startSynapseCount;
+                    
+                    // UPDATE THE UI LIVE
+                    setSyncStats(prev => ({
+                        ...prev,
+                        synapses: newSynapses > 0 ? newSynapses : 0
+                    }));
+                }
+            } catch (e) { 
+                // Ignore pulse errors, main loop handles criticals
+            }
+        }, 1000); // Tick every 1 second
+
+        // 3. START THE HEAVY BATCH LOOP
         while (!stopSyncRef.current) {
-            updateStatus(`SCANNING CORE: NODES ${totalNodes + 1}...`, "working");
+            updateStatus(`SCANNING SECTOR: NODES ${totalNodes + 1} - ${totalNodes + 10}...`, "working");
 
             try {
                 const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
@@ -500,43 +532,39 @@ const App = () => {
                 const data = await res.json();
 
                 if (data.status === "SUCCESS") {
-                    if (data.mode === "IDLE") break;
-
-                    // Ensure we are working with numbers
-                    const batchNodes = typeof data.queued_count === 'number' ? data.queued_count : 0;
-                    const batchSynapses = typeof data.synapse_count === 'number' ? data.synapse_count : 0;
-
-                    // SAFETY: If the backend is returning success but 0 progress, 
-                    // the Gate is likely too high or the AI is failing. 
-                    // We break to prevent a browser hang.
-                    if (batchNodes === 0 && batchSynapses === 0) {
-                        console.warn("Sync Progress Stalled.");
-                        break;
-                    }
                     if (data.mode === "IDLE") {
+                        updateStatus("CORE SYNCHRONIZED", "success");
                         break;
                     }
+
+                    const batchNodes = typeof data.queued_count === 'number' ? data.queued_count : 0;
+                    if (batchNodes === 0) break; // Safety break
+
                     totalNodes += batchNodes;
-                    totalSynapses += batchSynapses;
 
-                    setSyncStats({
+                    // Update Node Count (Synapses are handled by the Pulse now)
+                    setSyncStats(prev => ({
+                        ...prev,
                         count: totalNodes,
-                        synapses: totalSynapses,
-                        mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING"
-                    });
+                        mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "ANCHORING"
+                    }));
 
-                    updateStatus(`ANCHORED: +${batchSynapses} SYNAPSES`, "success");
+                    // Visual feedback for the batch completion
+                    updateStatus(`BATCH SECURED. PULSE ACTIVE.`, "neutral");
                     await new Promise(r => setTimeout(r, 500));
                 } else {
                     break;
                 }
             } catch (e) {
                 console.error("Sync Failure:", e);
+                updateStatus("LINK FAILURE", "error");
                 break;
             }
         }
 
-        // --- POST-FLIGHT LOGIC (Correctly contained inside the function) ---
+        // CLEANUP
+        clearInterval(pulseInterval);
+
         if (stopSyncRef.current) {
             setSyncPhase('SUMMARY');
         } else {
