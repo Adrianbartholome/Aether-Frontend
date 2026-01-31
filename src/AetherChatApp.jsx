@@ -489,7 +489,6 @@ const App = () => {
         let totalSynapses = 0;
 
         while (!stopSyncRef.current) {
-            updateStatus("SCANNING CORE...", "working");
             try {
                 const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
                     method: 'POST',
@@ -505,44 +504,34 @@ const App = () => {
                     if (batchNodes > 0) {
                         totalNodes += batchNodes;
                         totalSynapses += batchSynapses;
-                        const modeText = data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING";
-
-                        // Update stats with real data from the backend
-                        setSyncStats({ 
-                            count: totalNodes, 
-                            synapses: totalSynapses, 
-                            mode: modeText 
-                        });
-                        
-                        updateStatus(`${modeText}: ${totalNodes} Nodes | ${totalSynapses} Synapses`, "working");
-
-                        // 3 second pause between batches
+                        setSyncStats({ count: totalNodes, synapses: totalSynapses, mode: data.mode });
                         await new Promise(r => setTimeout(r, 3000));
-                    } else {
-                        if (data.mode === "IDLE") {
-                            if (!stopSyncRef.current) {
-                                updateStatus("SYSTEM SYNCHRONIZED", "success");
-                                await saveMessage('bot', `[SYSTEM]: Deep Sweep Complete. ${totalNodes} Nodes integrated with ${totalSynapses} Synapses.`, 'system');
-                            }
-                            break; 
-                        }
+                    } else if (data.mode === "IDLE") {
+                        break; 
                     }
                 } else { break; }
-            } catch (e) {
-                console.error("Sync Error:", e);
-                break;
-            }
+            } catch (e) { break; }
         }
 
-        setIsSyncing(false);
-        setSyncPhase('IDLE');
+        // --- THE "POST-FLIGHT" LOGIC ---
+        if (stopSyncRef.current) {
+            setSyncPhase('SUMMARY'); // Switch to the report card instead of closing
+        } else {
+            setIsSyncing(false);
+            setSyncPhase('IDLE');
+        }
         setIsAbortPending(false);
     };
 
     const handleStopSync = () => {
+        // 1. Tell the loop to stop on the next check
         stopSyncRef.current = true;
-        updateStatus("ABORT SEQUENCE INITIATED", "error");
-        // The loop will break on its next check and close the modal automatically
+
+        // 2. Show the "commencing when safe" message immediately
+        setIsAbortPending(true); 
+    
+        // 3. Update the bottom status bar for extra clarity
+        updateStatus("ABORT SIGNAL SENT - PARKING SHARD", "error");
     };
 
     const closeSyncConfig = () => {
@@ -832,56 +821,31 @@ INSTRUCTION: Analyze this data for the Architect.`;
                         {/* --- PHASE 1: CONFIGURATION --- */}
                         {syncPhase === 'CONFIG' && (
                             <div className="animate-fade-in relative">
-                                <button
-                                    onClick={closeSyncConfig}
-                                    className="absolute -top-4 -right-4 p-2 text-slate-500 hover:text-white transition-colors"
-                                >
+                                <button onClick={closeSyncConfig} className="absolute -top-4 -right-4 p-2 text-slate-500 hover:text-white transition-colors">
                                     <Minimize2 size={18} />
                                 </button>
-
-                                <h2 className="text-xl font-bold text-white mb-4 uppercase tracking-tighter">Significance Gate</h2>
-
+                                <h2 className="text-xl font-bold text-white mb-4 uppercase tracking-tighter text-center">Significance Gate</h2>
                                 <div className="mb-6 p-4 bg-black/40 rounded-xl border border-white/5">
                                     <input
-                                        type="number" min="1" max="9" autoFocus
-                                        value={syncThreshold}
-                                        onFocus={(e) => e.target.select()}
+                                        type="number" min="1" max="9" autoFocus value={syncThreshold}
                                         onChange={(e) => setSyncThreshold(parseInt(e.target.value))}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') handleSyncHolograms();
-                                            if (e.key === 'Escape') closeSyncConfig();
-                                        }}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleSyncHolograms()}
                                         className="w-20 bg-slate-950 border border-purple-500/40 rounded-lg p-3 text-center text-purple-400 font-mono text-2xl focus:outline-none focus:border-purple-500 shadow-inner"
                                     />
                                     <p className="text-[10px] text-slate-400 mt-4 leading-relaxed uppercase tracking-widest font-bold">
-                                        {syncThreshold > 6 ? "Burn: High-Density Weave" :
-                                            syncThreshold < 4 ? "Economy: Core Signal Only" :
-                                                "Balanced Resonance"}
+                                        {syncThreshold >= 7 ? "Economy: Core Signal Only" : syncThreshold <= 3 ? "Burn: High-Density Weave" : "Balanced Resonance"}
                                     </p>
                                 </div>
-
-                                <div className="space-y-3">
-                                    <button
-                                        onClick={handleSyncHolograms}
-                                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold tracking-widest transition-all shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2"
-                                    >
-                                        <Zap size={16} /> INITIALIZE WEAVE
-                                    </button>
-                                    <button
-                                        onClick={closeSyncConfig}
-                                        className="w-full py-2 text-slate-500 hover:text-slate-300 text-[10px] uppercase font-bold tracking-[0.2em] transition-colors"
-                                    >
-                                        Cancel Sequence
-                                    </button>
-                                </div>
+                                <button onClick={handleSyncHolograms} className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold tracking-widest transition-all shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2">
+                                    <Zap size={16} /> INITIALIZE WEAVE
+                                </button>
                             </div>
                         )}
 
-                        {/* --- PHASE 2: ACTIVE SYNC (The Spark Counter) --- */}
+                        {/* --- PHASE 2: ACTIVE SYNC --- */}
                         {syncPhase === 'ACTIVE' && (
                             <div className="animate-pulse-slow">
                                 <RefreshCw size={40} className="mx-auto mb-6 text-purple-400 animate-spin-slow" />
-
                                 {isAbortPending && (
                                     <div className="mb-6 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl animate-bounce">
                                         <p className="text-[10px] text-rose-400 font-bold uppercase tracking-widest flex items-center justify-center gap-2">
@@ -889,31 +853,46 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                         </p>
                                     </div>
                                 )}
-
                                 <div className="flex flex-col items-center mb-8">
                                     <h2 className="text-xs font-bold text-slate-400 uppercase tracking-[0.4em] mb-2">Synapses Created</h2>
                                     <p className="text-7xl font-mono text-white font-black mb-4 drop-shadow-[0_0_25px_rgba(168,85,247,0.6)]">
                                         {syncStats.synapses || 0}
                                     </p>
-
-                                    <div className="px-4 py-1.5 bg-purple-950/30 border border-purple-500/20 rounded-full backdrop-blur-sm shadow-inner">
-                                        <p className="text-[11px] text-purple-300 font-bold uppercase tracking-widest">
-                                            {syncStats.count} Nodes Integrated
-                                        </p>
+                                    <div className="px-4 py-1.5 bg-purple-950/30 border border-purple-500/20 rounded-full backdrop-blur-sm">
+                                        <p className="text-[11px] text-purple-300 font-bold uppercase tracking-widest">{syncStats.count} Nodes Integrated</p>
                                     </div>
-                                    <p className="text-[9px] text-slate-500 font-mono mt-3 uppercase tracking-tighter italic">
-                                        Current Mode: {syncStats.mode}
-                                    </p>
                                 </div>
-
                                 {!isAbortPending && (
-                                    <button
-                                        onClick={handleStopSync}
-                                        className="px-8 py-3 border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 rounded-xl text-[10px] font-black tracking-[0.2em] transition-all uppercase shadow-lg shadow-rose-950/20"
-                                    >
+                                    <button onClick={handleStopSync} className="px-8 py-3 border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 rounded-xl text-[10px] font-black tracking-[0.2em] transition-all uppercase shadow-lg shadow-rose-950/20">
                                         Abort Sequence
                                     </button>
                                 )}
+                            </div>
+                        )}
+
+                        {/* --- PHASE 3: ABORT SUMMARY --- */}
+                        {syncPhase === 'SUMMARY' && (
+                            <div className="animate-fade-in">
+                                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-6">
+                                    <h2 className="text-amber-400 text-xs font-bold uppercase tracking-[0.3em] mb-1">Sequence Terminated</h2>
+                                    <p className="text-[10px] text-slate-400 uppercase">Integrity Verified • Logic Parked</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 mb-8">
+                                    <div className="bg-black/40 p-4 rounded-xl border border-white/5">
+                                        <p className="text-2xl font-mono text-white font-bold">{syncStats.count}</p>
+                                        <p className="text-[9px] text-slate-500 uppercase tracking-tighter">Nodes Integrated</p>
+                                    </div>
+                                    <div className="bg-black/40 p-4 rounded-xl border border-white/5">
+                                        <p className="text-2xl font-mono text-purple-400 font-bold">{syncStats.synapses}</p>
+                                        <p className="text-[9px] text-slate-500 uppercase tracking-tighter">Synapses Woven</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => { setIsSyncing(false); setSyncPhase('IDLE'); }}
+                                    className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold tracking-widest transition-all"
+                                >
+                                    RETURN TO CORE
+                                </button>
                             </div>
                         )}
                     </div>
