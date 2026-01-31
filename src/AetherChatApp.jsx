@@ -486,58 +486,61 @@ const App = () => {
     stopSyncRef.current = false;
 
     let totalNodes = 0;
-let totalSynapses = 0;
+    let totalSynapses = 0;
 
-while (!stopSyncRef.current) {
-    // 1. Update status to show current target batch
-    updateStatus(`SCANNING CORE: NODES ${totalNodes + 1} - ${totalNodes + 10}...`, "working");
-    
-    try {
-        const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ gate_threshold: syncThreshold })
-        });
-        const data = await res.json();
+    // --- THE MAIN SYNC LOOP ---
+    while (!stopSyncRef.current) {
+        // Update status to show current target batch
+        updateStatus(`SCANNING CORE: NODES ${totalNodes + 1} - ${totalNodes + 10}...`, "working");
 
-        if (data.status === "SUCCESS") {
-            const batchNodes = data.queued_count || 0;
-            const batchSynapses = data.synapse_count || 0;
+        try {
+            const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gate_threshold: syncThreshold })
+            });
+            const data = await res.json();
 
-            if (batchNodes > 0 || batchSynapses > 0) {
-                // --- THE INSTANT ANCHOR ---
-                // We update the totals BEFORE we touch the UI state.
-                totalNodes += batchNodes;
-                totalSynapses += batchSynapses;
+            if (data.status === "SUCCESS") {
+                const batchNodes = data.queued_count || 0;
+                const batchSynapses = data.synapse_count || 0;
 
-                // 2. Push the ACTUAL totals to the HUD immediately.
-                setSyncStats({
-                    count: totalNodes,
-                    synapses: totalSynapses,
-                    mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING"
-                });
+                if (batchNodes > 0 || batchSynapses > 0) {
+                    // --- THE INSTANT ANCHOR ---
+                    // Increment the local variables IMMEDIATELY
+                    totalNodes += batchNodes;
+                    totalSynapses += batchSynapses;
 
-                // 3. Log success to the status bar
-                updateStatus(`ANCHORED: +${batchSynapses} SYNAPSES (TOTAL: ${totalSynapses})`, "success");
-                
-                // Small breather to let the UI render before the next heavy API call
-                await new Promise(r => setTimeout(r, 500));
+                    // Push the actual totals to the HUD state immediately
+                    setSyncStats({
+                        count: totalNodes,
+                        synapses: totalSynapses,
+                        mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING"
+                    });
 
-            } else if (data.mode === "IDLE") {
-                break; 
+                    // Log success to the status bar
+                    updateStatus(`ANCHORED: +${batchSynapses} SYNAPSES (TOTAL: ${totalSynapses})`, "success");
+
+                    // Small breather to let the UI render before the next batch request
+                    await new Promise(r => setTimeout(r, 500));
+
+                } else if (data.mode === "IDLE") {
+                    // Core is clean, breaking loop
+                    break;
+                }
+            } else {
+                // Backend error response, breaking loop
+                break;
             }
-        } else { 
-            break; 
+        } catch (e) {
+            console.error("Sync Failure:", e);
+            break;
         }
-    } catch (e) { 
-        console.error("Sync Failure:", e);
-        break; 
     }
-}
 
-    // --- THE "POST-FLIGHT" LOGIC (Now safely inside the function) ---
+    // --- THE POST-FLIGHT LOGIC ---
     if (stopSyncRef.current) {
-        setSyncPhase('SUMMARY'); 
+        setSyncPhase('SUMMARY');
     } else {
         setIsSyncing(false);
         setSyncPhase('IDLE');
