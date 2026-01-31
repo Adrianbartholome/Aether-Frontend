@@ -480,78 +480,76 @@ const App = () => {
     };
 
     const handleSyncHolograms = async () => {
-        setSyncPhase('ACTIVE');
-        setIsAbortPending(false);
-        setSyncStats({ count: 0, synapses: 0, mode: 'INITIALIZING' });
-        stopSyncRef.current = false;
+    setSyncPhase('ACTIVE');
+    setIsAbortPending(false);
+    setSyncStats({ count: 0, synapses: 0, mode: 'INITIALIZING' });
+    stopSyncRef.current = false;
 
-        let totalNodes = 0;
-        let totalSynapses = 0;
+    let totalNodes = 0;
+    let totalSynapses = 0;
 
-        while (!stopSyncRef.current) {
-    updateStatus("SCANNING CORE...", "working");
-    try {
-        const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ gate_threshold: syncThreshold })
-        });
-        const data = await res.json();
+    // --- THE MAIN SYNC LOOP ---
+    while (!stopSyncRef.current) {
+        updateStatus("SCANNING CORE...", "working");
+        try {
+            const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gate_threshold: syncThreshold })
+            });
+            const data = await res.json();
 
-        if (data.status === "SUCCESS") {
-            const batchNodes = data.queued_count || 0;
-            const batchSynapses = data.synapse_count || 0;
+            // DIAGNOSTIC LOG: Check your browser console (F12) to see this!
+            console.log(`[TITAN-HUD] Batch Received: Nodes=${data.queued_count}, Synapses=${data.synapse_count}`);
 
-            if (batchNodes > 0) {
-                const modeText = data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING";
-                
-                // --- THE SMOOTH TICKER ---
-                // We divide the batch into steps to animate over ~2.5 seconds
-                const steps = 10; 
-                const nodeStep = batchNodes / steps;
-                const synapseStep = batchSynapses / steps;
+            if (data.status === "SUCCESS") {
+                const batchNodes = data.queued_count || 0;
+                const batchSynapses = data.synapse_count || 0;
 
-                for (let i = 1; i <= steps; i++) {
-                    if (stopSyncRef.current) break;
+                if (batchNodes > 0 || batchSynapses > 0) {
+                    const modeText = data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING";
+                    const steps = 10;
+                    const nodeStep = batchNodes / steps;
+                    const synapseStep = batchSynapses / steps;
 
-                    setSyncStats(prev => ({
-                        count: Math.round(totalNodes + (nodeStep * i)),
-                        synapses: Math.round(totalSynapses + (synapseStep * i)),
-                        mode: modeText
-                    }));
+                    for (let i = 1; i <= steps; i++) {
+                        if (stopSyncRef.current) break;
 
-                    // 200ms x 10 steps = 2 seconds of active counting
-                    await new Promise(r => setTimeout(r, 200));
+                        setSyncStats(prev => ({
+                            count: Math.round(totalNodes + (nodeStep * i)),
+                            synapses: Math.round(totalSynapses + (synapseStep * i)),
+                            mode: modeText
+                        }));
+
+                        await new Promise(r => setTimeout(r, 200));
+                    }
+
+                    totalNodes += batchNodes;
+                    totalSynapses += batchSynapses;
+                    updateStatus(`${modeText} COMPLETED: ${totalNodes} TOTAL`, "working");
+                    await new Promise(r => setTimeout(r, 1000));
+
+                } else if (data.mode === "IDLE") {
+                    break; 
                 }
-
-                // Lock in the final totals for this batch
-                totalNodes += batchNodes;
-                totalSynapses += batchSynapses;
-                
-                updateStatus(`${modeText} COMPLETED: ${totalNodes} TOTAL`, "working");
-                
-                // Small extra padding before the next batch request
-                await new Promise(r => setTimeout(r, 1000));
-
-            } else if (data.mode === "IDLE") {
+            } else {
                 break;
             }
-        } else { break; }
-    } catch (e) { 
-        console.error("Sync Failure:", e);
-        break; 
-    }
-}
-
-        // --- THE "POST-FLIGHT" LOGIC ---
-        if (stopSyncRef.current) {
-            setSyncPhase('SUMMARY'); // Switch to the report card instead of closing
-        } else {
-            setIsSyncing(false);
-            setSyncPhase('IDLE');
+        } catch (e) {
+            console.error("Sync Failure:", e);
+            break;
         }
-        setIsAbortPending(false);
-    };
+    } 
+
+    // --- THE "POST-FLIGHT" LOGIC (Now safely inside the function) ---
+    if (stopSyncRef.current) {
+        setSyncPhase('SUMMARY'); 
+    } else {
+        setIsSyncing(false);
+        setSyncPhase('IDLE');
+    }
+    setIsAbortPending(false);
+};
 
     const handleStopSync = () => {
         // 1. Tell the loop to stop on the next check
