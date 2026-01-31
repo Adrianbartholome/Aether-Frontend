@@ -1129,7 +1129,27 @@ INSTRUCTION: Analyze this data for the Architect.`;
                     </div>
                     <div className="flex gap-2 items-center">
                         <Tooltip text="Manual Core Anchor" enabled={tooltipsEnabled}>
-                            <button onClick={() => executeTitanCommand({ action: 'commit', commit_type: 'full', memory_text: messages.map(m => m.text).join('\n') })} className="bg-indigo-600/80 hover:bg-indigo-500 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] p-2 rounded-lg text-xs flex items-center gap-1 transition-all border border-indigo-400/30 text-white">
+                            <button
+                                onClick={() => {
+                                    // 1. ASK THE ARCHITECT
+                                    const inputScore = window.prompt("TITAN PROTOCOL: Set Priority Index (1-9)", "9");
+
+                                    // 2. If Cancelled, abort
+                                    if (inputScore === null) return;
+
+                                    // 3. Parse and Validate (Default to 5 if input is weird)
+                                    const score = parseInt(inputScore) || 5;
+
+                                    // 4. TRANSMIT WITH OVERRIDE
+                                    executeTitanCommand({
+                                        action: 'commit',
+                                        commit_type: 'full',
+                                        memory_text: messages.map(m => m.text).join('\n'),
+                                        override_score: score // <--- Sending YOUR score
+                                    });
+                                }}
+                                className="bg-indigo-600/80 hover:bg-indigo-500 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] p-2 rounded-lg text-xs flex items-center gap-1 transition-all border border-indigo-400/30 text-white"
+                            >
                                 <Archive size={14} /> Anchor
                             </button>
                         </Tooltip>
