@@ -489,7 +489,7 @@ const App = () => {
         let totalSynapses = 0;
 
         while (!stopSyncRef.current) {
-            updateStatus(`SCANNING CORE: NODES ${totalNodes + 1} - ${totalNodes + 10}...`, "working");
+            updateStatus(`SCANNING CORE: NODES ${totalNodes + 1}...`, "working");
 
             try {
                 const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
@@ -500,24 +500,35 @@ const App = () => {
                 const data = await res.json();
 
                 if (data.status === "SUCCESS") {
-                    // Treat 0 as a valid number, but False as a failure
+                    if (data.mode === "IDLE") break;
+
+                    // Ensure we are working with numbers
                     const batchNodes = typeof data.queued_count === 'number' ? data.queued_count : 0;
                     const batchSynapses = typeof data.synapse_count === 'number' ? data.synapse_count : 0;
 
-                    if (data.mode === "IDLE") {
-                        break; // Core is empty, stop.
+                    // SAFETY: If the backend is returning success but 0 progress, 
+                    // the Gate is likely too high or the AI is failing. 
+                    // We break to prevent a browser hang.
+                    if (batchNodes === 0 && batchSynapses === 0) {
+                        console.warn("Sync Progress Stalled.");
+                        break;
                     }
-
-                    // Even if synapses are 0, we count the node as "Done"
+                    if (data.mode === "IDLE") {
+                        break;
+                    }
                     totalNodes += batchNodes;
                     totalSynapses += batchSynapses;
 
                     setSyncStats({
                         count: totalNodes,
                         synapses: totalSynapses,
-                        mode: data.mode
+                        mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING"
                     });
-                    // ...
+
+                    updateStatus(`ANCHORED: +${batchSynapses} SYNAPSES`, "success");
+                    await new Promise(r => setTimeout(r, 500));
+                } else {
+                    break;
                 }
             } catch (e) {
                 console.error("Sync Failure:", e);
