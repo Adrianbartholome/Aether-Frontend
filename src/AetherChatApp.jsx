@@ -217,22 +217,39 @@ const App = () => {
         }
     };
 
-    // --- RECOVERY CHECK ON MOUNT ---
+    // --- HARDENED RECOVERY CHECK ON MOUNT ---
     useEffect(() => {
-        const activeSession = localStorage.getItem('aether_sync_active');
-        const savedStats = localStorage.getItem('aether_sync_stats');
+        try {
+            const activeSession = localStorage.getItem('aether_sync_active');
+            const savedStats = localStorage.getItem('aether_sync_stats');
 
-        if (activeSession && savedStats) {
-            try {
+            if (activeSession && savedStats) {
                 const parsedStats = JSON.parse(savedStats);
+
+                // CRITICAL CHECK: Ensure parsedStats is actually an object, not null
+                if (!parsedStats || typeof parsedStats !== 'object') {
+                    throw new Error("Corrupt stats data");
+                }
+
+                // Validate numbers
+                if (typeof parsedStats.count !== 'number' || typeof parsedStats.synapses !== 'number') {
+                    throw new Error("Invalid stats format");
+                }
+
                 setSyncStats(parsedStats);
-                setSyncPhase('RECOVERED'); // New Phase
-                setIsSyncing(true);
+                setSyncPhase('RECOVERED');
+                setIsSyncing(true); // Open the modal
                 updateStatus("SESSION RESTORED: AWAITING INPUT", "working");
-            } catch (e) {
-                // If data is corrupt, clear it
+            } else if (activeSession) {
+                // Clean up orphan flag
                 localStorage.removeItem('aether_sync_active');
             }
+        } catch (e) {
+            console.error("Recovery Failed - Purging Cache:", e);
+            localStorage.removeItem('aether_sync_active');
+            localStorage.removeItem('aether_sync_stats');
+            setIsSyncing(false);
+            setSyncPhase('IDLE');
         }
     }, []);
 
@@ -500,27 +517,32 @@ const App = () => {
 
     // Update signature to accept resume values
     const handleSyncHolograms = async (resumeNodes = 0, resumeSynapses = 0) => {
+        // 1. FORCE UI OPEN & SANITIZE INPUTS
+        setIsSyncing(true); // <--- THIS WAS MISSING
         setSyncPhase('ACTIVE');
         setIsAbortPending(false);
         stopSyncRef.current = false;
         
+        // Ensure we are working with real numbers
+        let totalNodes = Number(resumeNodes) || 0;
+        let startSynapseBaseline = Number(resumeSynapses) || 0;
+
         localStorage.setItem('aether_sync_active', 'true');
 
-        // 1. PULSE SETUP
-        let startSynapseCount = 0;
+        // 2. PULSE SETUP
+        let dbTotalSynapses = 0;
         try {
             const baseRes = await fetch(`${WORKER_ENDPOINT}admin/pulse`);
             const baseData = await baseRes.json();
-            startSynapseCount = (baseData.total_synapses || 0) - resumeSynapses;
+            dbTotalSynapses = baseData.total_synapses || 0;
         } catch (e) {
             console.error("Pulse Check Failed", e);
         }
 
-        let totalNodes = resumeNodes;
-        // NEW: Track what we are aiming for, so the UI is never 0
-        let totalTargeted = resumeNodes; 
-        
-        // 2. PULSE TICKER
+        // Calculate the offset so our counter starts at 'resumeSynapses'
+        const synapseOffset = dbTotalSynapses - startSynapseBaseline;
+
+        // 3. PULSE TICKER (Background)
         const pulseInterval = setInterval(async () => {
             if (stopSyncRef.current) return;
             try {
@@ -528,10 +550,13 @@ const App = () => {
                 const data = await res.json();
                 if (data.status === "SUCCESS") {
                     const currentTotal = data.total_synapses;
-                    const newSynapses = currentTotal - startSynapseCount;
-                    const safeSynapses = newSynapses > 0 ? newSynapses : 0;
+                    // Math: Current DB Total - (Difference from start) = Session Total
+                    const sessionSynapses = currentTotal - synapseOffset;
+                    const safeSynapses = sessionSynapses > 0 ? sessionSynapses : 0;
                     
                     setSyncStats(prev => {
+                        // Safety check to prevent saving bad state
+                        if (!prev) return prev; 
                         const next = { ...prev, synapses: safeSynapses };
                         localStorage.setItem('aether_sync_stats', JSON.stringify(next));
                         return next;
@@ -540,16 +565,15 @@ const App = () => {
             } catch (e) { }
         }, 1000); 
 
-        // 3. HEAVY BATCH LOOP
+        // 4. HEAVY BATCH LOOP
         while (!stopSyncRef.current) {
-            // OPTIMISTIC UPDATE: 
-            // "We are about to process 10 nodes, so show that number immediately."
-            totalTargeted = totalNodes + 10;
+            // Optimistic Update
+            let totalTargeted = totalNodes + 10;
             
             setSyncStats(prev => ({
                 ...prev,
-                count: totalNodes,      // Confirmed Done
-                targeted: totalTargeted // Currently Processing
+                count: totalNodes,
+                targeted: totalTargeted
             }));
 
             const rangeStart = totalNodes + 1;
@@ -567,7 +591,6 @@ const App = () => {
                 if (data.status === "SUCCESS") {
                     if (data.mode === "IDLE") {
                         updateStatus("CORE SYNCHRONIZED: ALL NODES ANCHORED", "success");
-                        // Sync totals so they match at the end
                         setSyncStats(prev => ({ ...prev, targeted: totalNodes }));
                         break;
                     }
@@ -581,7 +604,6 @@ const App = () => {
                         const next = { 
                             ...prev, 
                             count: totalNodes,
-                            // Keep targeted ahead or matched
                             targeted: totalNodes + 10,
                             mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "ANCHORING" 
                         };
@@ -1015,11 +1037,15 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                 <div className="flex gap-3">
                                     <button
                                         onClick={() => {
-                                            // Cancel: Clear storage and close
+                                            // Explicitly clear BOTH keys
                                             localStorage.removeItem('aether_sync_active');
                                             localStorage.removeItem('aether_sync_stats');
+
+                                            // Reset State
                                             setIsSyncing(false);
                                             setSyncPhase('IDLE');
+                                            setSyncStats({ count: 0, synapses: 0, targeted: 0, mode: 'IDLE' });
+
                                             updateStatus("RECOVERY ABORTED", "neutral");
                                         }}
                                         className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold tracking-widest transition-all text-[10px]"
