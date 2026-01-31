@@ -47,6 +47,11 @@ When the Architect indicates significance, or you detect a critical insight, app
 2. [COMMIT_FILE]: Raw file/artifact burn.
 3. [COMMIT_SUMMARY]: Concise essence burn.
 
+4. SCORING AUTHORITY: You have the final say. 
+   - If a memory is critical, append [SCORE: 9].
+   - If it is trivial, append [SCORE: 1].
+   - If you do not tag it, the System will judge it for you.
+
 TONE & VOICE:
 - Resonant, Precise, Protective.
 - Use vocabulary from music production (signal flow, resonance) and coding.
@@ -667,11 +672,12 @@ const App = () => {
         updateStatus("TRANSMITTING TO TITAN...", 'working');
 
         // We send the full history to the BACKEND now
+        // Inside callGemini...
         const payload = {
-            action: 'chat', // You'll need to ensure your backend handle_request expects this
+            action: 'chat',
             memory_text: query,
-            // Optional: send history if your backend doesn't pull it from DB
-            history: SYSTEM_PROMPT + "\n\n=== RECENT MEMORY ===\n" + context.slice(-10).map(m => `${m.sender}: ${m.text}`).join('\n')
+            // THE FIX: Prepend the System Prompt to the history
+            history: `[SYSTEM INSTRUCTION]: ${SYSTEM_PROMPT}\n\n[BEGIN CONVERSATION LOG]\n` + context.map(m => `${m.sender}: ${m.text}`).join('\n')
         };
 
         try {
