@@ -500,27 +500,24 @@ const App = () => {
                 const data = await res.json();
 
                 if (data.status === "SUCCESS") {
-                    const batchNodes = data.queued_count || 0;
-                    const batchSynapses = data.synapse_count || 0;
+                    // Treat 0 as a valid number, but False as a failure
+                    const batchNodes = typeof data.queued_count === 'number' ? data.queued_count : 0;
+                    const batchSynapses = typeof data.synapse_count === 'number' ? data.synapse_count : 0;
 
-                    if (batchNodes > 0 || batchSynapses > 0) {
-                        totalNodes += batchNodes;
-                        totalSynapses += batchSynapses;
-
-                        setSyncStats({
-                            count: totalNodes,
-                            synapses: totalSynapses,
-                            mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "REPAIRING"
-                        });
-
-                        updateStatus(`ANCHORED: +${batchSynapses} SYNAPSES`, "success");
-                        await new Promise(r => setTimeout(r, 500));
-
-                    } else if (data.mode === "IDLE") {
-                        break;
+                    if (data.mode === "IDLE") {
+                        break; // Core is empty, stop.
                     }
-                } else {
-                    break;
+
+                    // Even if synapses are 0, we count the node as "Done"
+                    totalNodes += batchNodes;
+                    totalSynapses += batchSynapses;
+
+                    setSyncStats({
+                        count: totalNodes,
+                        synapses: totalSynapses,
+                        mode: data.mode
+                    });
+                    // ...
                 }
             } catch (e) {
                 console.error("Sync Failure:", e);
