@@ -1,145 +1,194 @@
-import React, { useEffect, useState, useRef } from 'react';
-import ForceGraph3D from 'react-force-graph-3d';
-import { Minimize2, Loader, Hexagon } from 'lucide-react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { OrbitControls, Stars } from '@react-three/drei';
+import * as THREE from 'three';
+import { RefreshCw, X, Zap } from 'lucide-react';
 
-const TitanGraph = ({ workerEndpoint, onClose }) => {
-    const [graphData, setGraphData] = useState({ nodes: [], links: [] });
-    const [loading, setLoading] = useState(true);
-    const fgRef = useRef();
+// --- THE STAR FIELD (YOUR NODES) ---
+const NodeCloud = ({ nodes }) => {
+    const meshRef = useRef();
 
-    // --- LIVE DATA LOOP ---
-    useEffect(() => {
-        let isMounted = true;
+    // Convert the raw data into Three.js BufferAttributes
+    const { positions, colors, sizes } = useMemo(() => {
+        const count = nodes.length;
+        const positions = new Float32Array(count * 3);
+        const colors = new Float32Array(count * 3);
+        const sizes = new Float32Array(count);
 
-        const fetchData = () => {
-            fetch(`${workerEndpoint}graph`)
-                .then(res => res.json())
-                .then(data => {
-                    if (!isMounted) return;
-                    
-                    if (data.nodes && data.links) {
-                        // --- THE HALO KILLER ---
-                        // Only show nodes that have connections OR are Core Memories
-                        const linkedIds = new Set();
-                        data.links.forEach(l => {
-                            const s = typeof l.source === 'object' ? l.source.id : l.source;
-                            const t = typeof l.target === 'object' ? l.target.id : l.target;
-                            linkedIds.add(s);
-                            linkedIds.add(t);
-                        });
+        for (let i = 0; i < count; i++) {
+            // Data Format: [id, x, y, z, r, g, b, size]
+            const n = nodes[i];
+            
+            // XYZ
+            positions[i * 3] = n[1];     // x
+            positions[i * 3 + 1] = n[2]; // y
+            positions[i * 3 + 2] = n[3]; // z
 
-                        const cleanNodes = data.nodes.filter(n => linkedIds.has(n.id) || n.val > 7);
-                        
-                        // ONLY UPDATE if the counts are different (prevents jitter)
-                        setGraphData(prev => {
-                            if (prev.nodes.length !== cleanNodes.length || prev.links.length !== data.links.length) {
-                                return { nodes: cleanNodes, links: data.links };
-                            }
-                            return prev;
-                        });
-                    }
-                    setLoading(false);
-                })
-                .catch(err => {
-                    console.error("Titan Graph Link Failed:", err);
-                    if (isMounted) setLoading(false);
-                });
-        };
+            // RGB (Normalize 0-255 to 0.0-1.0)
+            colors[i * 3] = n[4] / 255;
+            colors[i * 3 + 1] = n[5] / 255;
+            colors[i * 3 + 2] = n[6] / 255;
 
-        // 1. Fetch Immediately
-        fetchData();
-
-        // 2. Poll every 5 seconds (Live Mode)
-        const interval = setInterval(fetchData, 5000);
-
-        // Cleanup on close
-        return () => {
-            isMounted = false;
-            clearInterval(interval);
-        };
-    }, [workerEndpoint]);
-
-    // --- PHYSICS TUNING ---
-    useEffect(() => {
-        if (fgRef.current) {
-            // Massive Repulsion: Push nodes apart aggressively (-800)
-            fgRef.current.d3Force('charge').strength(-800);
-            // Loose Links: Let the connections be long and relaxed (150)
-            fgRef.current.d3Force('link').distance(150);
-            // Center Gravity: Pull the whole cloud gently to the center
-            fgRef.current.d3Force('center').strength(0.05);
+            // Size
+            sizes[i] = n[7] || 1.0;
         }
-    }, [graphData]); // Re-run if data changes
+
+        return { positions, colors, sizes };
+    }, [nodes]);
+
+    // Animate the cloud slowly rotating
+    useFrame((state) => {
+        if (meshRef.current) {
+            meshRef.current.rotation.y += 0.001; // Slow spin
+            // Optional: breathing effect
+            // meshRef.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 0.5) * 0.02);
+        }
+    });
 
     return (
-        <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col animate-fade-in">
+        <points ref={meshRef}>
+            <bufferGeometry>
+                <bufferAttribute
+                    attach="attributes-position"
+                    count={positions.length / 3}
+                    array={positions}
+                    itemSize={3}
+                />
+                <bufferAttribute
+                    attach="attributes-color"
+                    count={colors.length / 3}
+                    array={colors}
+                    itemSize={3}
+                />
+                {/* Note: WebGL PointsMaterial size is uniform by default. 
+                    To vary size per-particle requires a custom shader, 
+                    so for simplicity we use a fixed size here or scale the whole cloud. 
+                    If you want per-node sizing, we can add a shader later. */}
+            </bufferGeometry>
+            <pointsMaterial
+                size={2.5} // Base size
+                vertexColors
+                sizeAttenuation
+                transparent
+                opacity={0.8}
+                blending={THREE.AdditiveBlending}
+                depthWrite={false}
+            />
+        </points>
+    );
+};
+
+// --- MAIN COMPONENT ---
+const TitanGraph = ({ workerEndpoint, onClose }) => {
+    const [nodes, setNodes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [remapping, setRemapping] = useState(false);
+    const [error, setError] = useState(null);
+
+    // 1. Fetch the Map
+    const fetchMap = async () => {
+        try {
+            setLoading(true);
+            const res = await fetch(`${workerEndpoint}cortex/map`); // New Endpoint
+            const data = await res.json();
             
-            {/* --- HUD OVERLAY --- */}
-            <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-start z-[101] pointer-events-none">
-                <div className="bg-black/40 backdrop-blur-md p-4 rounded-xl border border-cyan-500/20 pointer-events-auto shadow-[0_0_15px_rgba(6,182,212,0.1)]">
-                    <h2 className="text-cyan-400 font-bold tracking-[0.2em] text-sm uppercase mb-1 flex items-center gap-2">
-                         <Hexagon size={14} /> Neural Cartography
-                    </h2>
-                    <p className="text-slate-400 text-xs font-mono">
-                        NODES: {graphData.nodes.length} | SYNAPSES: {graphData.links.length}
+            if (data.status === "SUCCESS") {
+                setNodes(data.points);
+            } else {
+                setError("Failed to load Star Map.");
+            }
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 2. Trigger Re-Calculation (Python)
+    const handleRemap = async () => {
+        if (!window.confirm("Initiate Cortex Re-Cartography? This asks the Core to recalculate 3D physics for all nodes.")) return;
+        
+        setRemapping(true);
+        try {
+            // Trigger the Python script
+            await fetch(`${workerEndpoint}admin/recalculate_map`, { method: 'POST' }); // Ensure this matches your route
+            
+            // Poll for completion (Simple version: just wait 5s then reload)
+            // Ideally, your backend would tell you when it's done via websocket
+            setTimeout(() => {
+                setRemapping(false);
+                fetchMap(); // Reload the new coordinates
+            }, 5000); 
+            
+        } catch (e) {
+            alert("Remap trigger failed: " + e.message);
+            setRemapping(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchMap();
+    }, []);
+
+    return (
+        <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
+            {/* --- HUD / UI OVERLAY --- */}
+            <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-start z-10 pointer-events-none">
+                <div>
+                    <h1 className="text-2xl font-bold text-white tracking-widest uppercase font-mono flex items-center gap-3">
+                        <Zap className="text-cyan-400" /> Cortex Visualizer
+                    </h1>
+                    <p className="text-xs text-cyan-500/60 font-mono mt-1">
+                        NODES: {nodes.length.toLocaleString()} | RENDER MODE: GPU INSTANCED
                     </p>
                 </div>
-
-                <button 
-                    onClick={onClose}
-                    className="pointer-events-auto bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/30 p-2 rounded-lg transition-all backdrop-blur-md"
-                >
-                    <Minimize2 size={20} />
-                </button>
+                
+                <div className="flex gap-2 pointer-events-auto">
+                    <button 
+                        onClick={handleRemap}
+                        disabled={remapping}
+                        className={`px-4 py-2 bg-slate-800 border border-white/10 text-white text-xs font-bold rounded hover:bg-slate-700 transition flex items-center gap-2 ${remapping ? 'animate-pulse text-yellow-400' : ''}`}
+                    >
+                        <RefreshCw size={14} className={remapping ? "animate-spin" : ""} />
+                        {remapping ? "CALCULATING PHYSICS..." : "REGENERATE MAP"}
+                    </button>
+                    <button 
+                        onClick={onClose}
+                        className="px-4 py-2 bg-red-900/20 border border-red-500/50 text-red-400 text-xs font-bold rounded hover:bg-red-900/50 transition"
+                    >
+                        <X size={14} /> CLOSE
+                    </button>
+                </div>
             </div>
 
             {/* --- LOADING STATE --- */}
             {loading && (
-                <div className="absolute inset-0 flex items-center justify-center z-[100] pointer-events-none">
-                    <div className="text-center">
-                        <Loader size={48} className="animate-spin text-cyan-500 mb-4 mx-auto" />
-                        <p className="text-cyan-300 font-mono text-xs uppercase tracking-widest animate-pulse">Constructing Geometry...</p>
-                    </div>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+                    <div className="text-cyan-500 font-mono animate-pulse">DOWNLOADING STAR MAP...</div>
                 </div>
             )}
 
-            {/* --- THE 3D ENGINE --- */}
-            <div className="flex-1 cursor-move">
-                <ForceGraph3D
-                    ref={fgRef}
-                    graphData={graphData}
-                    backgroundColor="#020617" 
-                    
-                    // Warmup prevents "explosion" animation
-                    warmupTicks={100} 
-                    cooldownTicks={0}
+            {/* --- 3D CANVAS --- */}
+            <Canvas camera={{ position: [0, 0, 100], fov: 60 }}>
+                {/* Lighting */}
+                <ambientLight intensity={0.5} />
+                <pointLight position={[10, 10, 10]} />
+                
+                {/* Background Stars (Far away) */}
+                <Stars radius={300} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
 
-                    // NODE STYLING
-                    nodeLabel="name"
-                    nodeColor={node => node.val > 8 ? "#ec4899" : "#06b6d4"} 
-                    nodeVal={node => node.val} 
-                    nodeOpacity={0.9}
-                    nodeResolution={16}
+                {/* The Neural Cloud */}
+                {!loading && <NodeCloud nodes={nodes} />}
 
-                    // LINK STYLING
-                    linkColor={() => "#4f46e5"} 
-                    linkWidth={link => link.value * 0.5} 
-                    linkOpacity={0.3}
-                    linkDirectionalParticles={2} 
-                    linkDirectionalParticleSpeed={0.005}
-                    
-                    // INTERACTION
-                    onNodeClick={node => {
-                        const distance = 40;
-                        const distRatio = 1 + distance/Math.hypot(node.x, node.y, node.z);
-                        fgRef.current.cameraPosition(
-                            { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio }, 
-                            node, 
-                            3000
-                        );
-                    }}
+                {/* Controls */}
+                <OrbitControls 
+                    enablePan={true} 
+                    enableZoom={true} 
+                    enableRotate={true} 
+                    autoRotate={true}
+                    autoRotateSpeed={0.5}
                 />
-            </div>
+            </Canvas>
         </div>
     );
 };
