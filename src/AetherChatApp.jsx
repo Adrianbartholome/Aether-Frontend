@@ -530,7 +530,7 @@ const App = () => {
         setSyncPhase('ACTIVE');
         setIsAbortPending(false);
         stopSyncRef.current = false;
-        
+
         // Ensure we are working with real numbers
         let totalNodes = Number(resumeNodes) || 0;
         let startSynapseBaseline = Number(resumeSynapses) || 0;
@@ -561,23 +561,23 @@ const App = () => {
                     // Math: Current DB Total - (Difference from start) = Session Total
                     const sessionSynapses = currentTotal - synapseOffset;
                     const safeSynapses = sessionSynapses > 0 ? sessionSynapses : 0;
-                    
+
                     setSyncStats(prev => {
                         // Safety check to prevent saving bad state
-                        if (!prev) return prev; 
+                        if (!prev) return prev;
                         const next = { ...prev, synapses: safeSynapses };
                         localStorage.setItem('aether_sync_stats', JSON.stringify(next));
                         return next;
                     });
                 }
             } catch (e) { }
-        }, 1000); 
+        }, 1000);
 
         // 4. HEAVY BATCH LOOP
         while (!stopSyncRef.current) {
             // Optimistic Update
             let totalTargeted = totalNodes + 10;
-            
+
             setSyncStats(prev => ({
                 ...prev,
                 count: totalNodes,
@@ -604,16 +604,16 @@ const App = () => {
                     }
 
                     const batchNodes = typeof data.queued_count === 'number' ? data.queued_count : 0;
-                    if (batchNodes === 0) break; 
+                    if (batchNodes === 0) break;
 
                     totalNodes += batchNodes;
-                    
+
                     setSyncStats(prev => {
-                        const next = { 
-                            ...prev, 
+                        const next = {
+                            ...prev,
                             count: totalNodes,
                             targeted: totalNodes + 10,
-                            mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "ANCHORING" 
+                            mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "ANCHORING"
                         };
                         localStorage.setItem('aether_sync_stats', JSON.stringify(next));
                         return next;
@@ -1429,7 +1429,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                 </footer>
             </div>
 
-            <style jsx>{`
+            <style>{`
                 @keyframes drift {
                     0% { transform: scale(1.1); }
                     100% { transform: scale(1.2) translate(-2%, -2%); }
@@ -1445,6 +1445,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                     animation: scan 2s linear infinite;
                 }
             `}</style>
+            
             {/* --- 3D GRAPH OVERLAY --- */}
             {
                 showGraph && (
