@@ -4,35 +4,30 @@ import { OrbitControls, Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { RefreshCw, X, Zap, Sliders, MousePointer2, Terminal } from 'lucide-react';
 
+// --- HELPER: TEXTURE GENERATOR (Pure JS) ---
 const createCircleTexture = () => {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
   
-  // Create a radial gradient (Inner glow to transparent)
   const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)'); // Solid center
-  gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)'); // Soft edge
-  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)'); // Transparent
-
-  const [universeScale, setUniverseScale] = useState(1000);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)'); 
+  gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)'); 
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)'); 
   
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 64, 64);
   
-  const texture = new THREE.CanvasTexture(canvas);
-  return texture;
+  return new THREE.CanvasTexture(canvas);
 };
 
-// --- 1. THE NODES (Visuals) ---
-// --- 1. THE NODES (Visuals) ---
+// --- 1. THE NODES ---
 const NodeCloud = ({ nodes, onHover }) => {
     const meshRef = useRef();
     const hoverRef = useRef(null);
     const { raycaster, camera, mouse } = useThree();
 
-    // FIX 1: Initialize the texture inside the component using useMemo
     const starTexture = useMemo(() => createCircleTexture(), []);
 
     const { positions, colors, sizes } = useMemo(() => {
@@ -81,21 +76,21 @@ const NodeCloud = ({ nodes, onHover }) => {
                 <bufferAttribute attach="attributes-color" count={colors.length / 3} array={colors} itemSize={3} />
             </bufferGeometry>
             <pointsMaterial 
-                size={8.0}               // Good balance for glow
+                size={12.0}              
                 vertexColors 
-                map={starTexture}        // Now correctly defined!
+                map={starTexture}        
                 transparent={true} 
                 alphaTest={0.001}        
-                opacity={0.8}            // Increased so you can actually see them
+                opacity={0.8}            
                 depthWrite={false} 
-                blending={THREE.AdditiveBlending} // FIX 2: Additive makes them "glow" against the dark
+                blending={THREE.AdditiveBlending} 
                 sizeAttenuation={true}
             />
         </points>
     );
 };
 
-// --- 2. THE SYNAPSES (Visuals) ---
+// --- 2. THE SYNAPSES ---
 const SynapseNetwork = ({ nodes, synapses }) => {
     const geometry = useMemo(() => {
         if (!nodes.length || !synapses.length) return null;
@@ -122,7 +117,7 @@ const SynapseNetwork = ({ nodes, synapses }) => {
     );
 };
 
-// --- 3. MAIN COMPONENT (Logic + UI) ---
+// --- 3. MAIN COMPONENT ---
 const TitanGraph = ({ workerEndpoint, onClose }) => {
     const [nodes, setNodes] = useState([]);
     const [synapses, setSynapses] = useState([]);
@@ -131,12 +126,16 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     // UI State
     const [remapping, setRemapping] = useState(false);
     const [showControls, setShowControls] = useState(true);
-    const [logMessage, setLogMessage] = useState("System Ready."); // LIVE LOGS
+    const [logMessage, setLogMessage] = useState("System Ready.");
     
     // Physics State
     const [spacing, setSpacing] = useState(1.5);
     const [clusterStrength, setClusterStrength] = useState(2.0);
-    const [hoveredNode, setHoveredNode] = useState(null);
+    const [universeScale, setUniverseScale] = useState(1000); 
+    
+    // --- THIS WAS THE MISSING LINE ---
+    const [hoveredNode, setHoveredNode] = useState(null); 
+    // -------------------------------
 
     // FETCH DATA
     const loadCortex = async () => {
@@ -154,7 +153,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
         finally { setLoading(false); }
     };
 
-    // POLL FOR LOGS (The Live Wire)
+    // POLL FOR LOGS
     useEffect(() => {
         let interval;
         if (remapping) {
@@ -164,7 +163,6 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                     const data = await res.json();
                     if (data.message) setLogMessage(data.message);
                     
-                    // Auto-refresh if done
                     if (data.message.includes("Done") || data.message.includes("Success")) {
                         setRemapping(false);
                         loadCortex();
@@ -178,25 +176,18 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     // TRIGGER REMAP
     const handleRemap = async () => {
         setRemapping(true);
-
-        await fetch(`${workerEndpoint}admin/recalculate_map`, { 
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                spacing: spacing, 
-                cluster_strength: clusterStrength,
-                scale: universeScale // Adding the new variable
-            })
-        });
-
         setLogMessage("Initiating Protocol...");
+        
         try {
             await fetch(`${workerEndpoint}admin/recalculate_map`, { 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ spacing, cluster_strength: clusterStrength })
+                body: JSON.stringify({ 
+                    spacing: spacing, 
+                    cluster_strength: clusterStrength,
+                    scale: universeScale 
+                })
             });
-            // The useEffect above handles the rest!
         } catch (e) { 
             setRemapping(false); 
             setLogMessage("Trigger Failed.");
@@ -220,7 +211,6 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                 </div>
                 
                 <div className="flex gap-2 pointer-events-auto">
-                    {/* RESTORED TOP BUTTON */}
                     <button onClick={handleRemap} disabled={remapping} className={`px-3 py-1.5 bg-slate-900 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold rounded hover:bg-slate-800 transition flex items-center gap-2 ${remapping ? 'animate-pulse text-yellow-400' : ''}`}>
                         <RefreshCw size={12} className={remapping ? "animate-spin" : ""} /> 
                         {remapping ? "PROCESSING..." : "REMAP"}
@@ -257,10 +247,10 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                         <input type="range" min="0.1" max="10.0" step="0.5" value={clusterStrength} onChange={(e) => setClusterStrength(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"/>
                     </div>
                     <div>
-                    <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
-                        <span>Universe Scale</span>
-                        <span>{universeScale} units</span>
-                    </div>
+                        <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
+                            <span>Universe Scale</span>
+                            <span>{universeScale} units</span>
+                        </div>
                         <input 
                             type="range" min="500" max="5000" step="100" 
                             value={universeScale} 
@@ -302,7 +292,6 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
             <Canvas camera={{ position: [0, 0, 140], fov: 45 }}>
                 <color attach="background" args={['#020617']} />
                 <Stars radius={300} depth={50} count={3000} factor={4} saturation={0} fade />
-                {/* NodeCloud and SynapseNetwork */}
                 {!loading && <group><NodeCloud nodes={nodes} onHover={setHoveredNode} /><SynapseNetwork nodes={nodes} synapses={synapses} /></group>}
                 <OrbitControls enablePan={true} enableZoom={true} autoRotate={false} />
             </Canvas>
