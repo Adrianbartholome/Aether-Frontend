@@ -4,11 +4,36 @@ import { OrbitControls, Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { RefreshCw, X, Zap, Sliders, MousePointer2, Terminal } from 'lucide-react';
 
+const createCircleTexture = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  
+  // Create a radial gradient (Inner glow to transparent)
+  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)'); // Solid center
+  gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)'); // Soft edge
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)'); // Transparent
+
+  const [universeScale, setUniverseScale] = useState(1000);
+  
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 64, 64);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
+};
+
+// --- 1. THE NODES (Visuals) ---
 // --- 1. THE NODES (Visuals) ---
 const NodeCloud = ({ nodes, onHover }) => {
     const meshRef = useRef();
     const hoverRef = useRef(null);
     const { raycaster, camera, mouse } = useThree();
+
+    // FIX 1: Initialize the texture inside the component using useMemo
+    const starTexture = useMemo(() => createCircleTexture(), []);
 
     const { positions, colors, sizes } = useMemo(() => {
         const count = nodes.length;
@@ -39,7 +64,6 @@ const NodeCloud = ({ nodes, onHover }) => {
             const index = intersects[0].index;
             if (hoverRef.current !== index) {
                 hoverRef.current = index;
-                // n[8] is the label
                 onHover(nodes[index], [nodes[index][1], nodes[index][2], nodes[index][3]]);
             }
         } else {
@@ -56,7 +80,17 @@ const NodeCloud = ({ nodes, onHover }) => {
                 <bufferAttribute attach="attributes-position" count={positions.length / 3} array={positions} itemSize={3} />
                 <bufferAttribute attach="attributes-color" count={colors.length / 3} array={colors} itemSize={3} />
             </bufferGeometry>
-            <pointsMaterial size={3.5} vertexColors sizeAttenuation transparent opacity={0.9} depthWrite={false} blending={THREE.AdditiveBlending} />
+            <pointsMaterial 
+                size={8.0}               // Good balance for glow
+                vertexColors 
+                map={starTexture}        // Now correctly defined!
+                transparent={true} 
+                alphaTest={0.001}        
+                opacity={0.8}            // Increased so you can actually see them
+                depthWrite={false} 
+                blending={THREE.AdditiveBlending} // FIX 2: Additive makes them "glow" against the dark
+                sizeAttenuation={true}
+            />
         </points>
     );
 };
@@ -83,7 +117,7 @@ const SynapseNetwork = ({ nodes, synapses }) => {
     if (!geometry) return null;
     return (
         <lineSegments geometry={geometry}>
-            <lineBasicMaterial color="#6366f1" transparent opacity={0.06} blending={THREE.AdditiveBlending} depthWrite={false} />
+            <lineBasicMaterial color="#6366f1" transparent opacity={0.03} blending={THREE.AdditiveBlending} depthWrite={false} />
         </lineSegments>
     );
 };
@@ -144,6 +178,17 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     // TRIGGER REMAP
     const handleRemap = async () => {
         setRemapping(true);
+
+        await fetch(`${workerEndpoint}admin/recalculate_map`, { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                spacing: spacing, 
+                cluster_strength: clusterStrength,
+                scale: universeScale // Adding the new variable
+            })
+        });
+
         setLogMessage("Initiating Protocol...");
         try {
             await fetch(`${workerEndpoint}admin/recalculate_map`, { 
@@ -210,6 +255,18 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                             <span>{clusterStrength}x</span>
                         </div>
                         <input type="range" min="0.1" max="10.0" step="0.5" value={clusterStrength} onChange={(e) => setClusterStrength(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"/>
+                    </div>
+                    <div>
+                    <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
+                        <span>Universe Scale</span>
+                        <span>{universeScale} units</span>
+                    </div>
+                        <input 
+                            type="range" min="500" max="5000" step="100" 
+                            value={universeScale} 
+                            onChange={(e) => setUniverseScale(parseFloat(e.target.value))} 
+                            className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        />
                     </div>
 
                     <button onClick={handleRemap} disabled={remapping} className={`w-full py-2 bg-slate-800 border border-white/10 text-white text-[10px] font-bold rounded hover:bg-slate-700 transition flex items-center justify-center gap-2 ${remapping ? 'border-yellow-500/50 text-yellow-400' : ''}`}>

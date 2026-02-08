@@ -5,6 +5,7 @@ import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, o
 import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw, AlertTriangle, Smile } from 'lucide-react';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import TitanGraph from './TitanGraph';
+import { Save } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const BACKGROUND_IMAGE_URL = "/titan_bg.jpg";
@@ -208,9 +209,10 @@ const App = () => {
     const [loading, setLoading] = useState(false);
     const [showGraph, setShowGraph] = useState(false);
 
-    // Inside your App component
     const [activeModel, setActiveModel] = useState('gemini-2.5-flash');
     const [isFallbackActive, setIsFallbackActive] = useState(false);
+
+    const [dormantAnchor, setDormantAnchor] = useState(null);
 
     // Add a function to check the Shield Status from your backend
     const syncShieldStatus = async () => {
@@ -376,6 +378,81 @@ const App = () => {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, viewSince]);
+
+    useEffect(() => {
+        const checkMemory = async () => {
+            try {
+                const res = await fetch(`${WORKER_ENDPOINT}admin/anchor/last`);
+                const data = await res.json();
+
+                if (data.status === "SUCCESS" && data.anchor) {
+                    // Store it, but don't show it yet
+                    setDormantAnchor(data.anchor);
+
+                    // The Polite Greeting
+                    setMessages(prev => [
+                        ...prev,
+                        {
+                            sender: 'bot',
+                            text: "System Online. I have a holographic anchor from our previous session. Would you like a reminder of what we were last talking about?",
+                            source: 'system'
+                        }
+                    ]);
+                } else {
+                    // Standard Greeting (First run or no anchor)
+                    setMessages(prev => [
+                        ...prev,
+                        { sender: 'bot', text: "System Online. Ready for input.", source: 'system' }
+                    ]);
+                }
+            } catch (e) {
+                console.error("Memory Check Failed", e);
+            }
+        };
+
+        checkMemory();
+    }, []);
+
+    // --- 2. THE RESTORE FUNCTION (Triggered by you) ---
+    const restoreSession = () => {
+        if (!dormantAnchor) return;
+
+        const a = dormantAnchor;
+
+        // 1. Visual Card (The Reminder)
+        const recapCard = `**⟡ SESSION RESTORED**
+    > "${a.synthesis}"
+
+    **7-CHANNEL STATE:**
+    • **Chronos:** ${a.chronos}
+    • **Ethos:** ${a.ethos}
+    • **Logos:** ${a.logos}
+    `;
+
+        // 2. The System Injection (The Brain Transplant)
+        const systemInjection = `
+    [SYSTEM INJECTION: PREVIOUS SESSION STATE]
+    1. CHRONOS: ${a.chronos}
+    2. LOGOS: ${a.logos}
+    3. PATHOS: ${JSON.stringify(a.pathos)}
+    4. ETHOS: ${a.ethos}
+    5. MYTHOS: ${a.mythos}
+    6. CATALYST: ${a.catalyst}
+    7. SYNTHESIS: ${a.synthesis}
+
+    INSTRUCTION: Resume operations from this state.
+    `;
+
+        setMessages(prev => [
+            ...prev,
+            { sender: 'user', text: "Yes, remind me.", source: 'user' }, // Optional: simulates you saying yes
+            { sender: 'bot', text: recapCard, source: 'system_anchor' },
+            { sender: 'system', text: systemInjection, source: 'system_hidden' }
+        ]);
+
+        // Clear the dormant anchor so we don't ask again
+        setDormantAnchor(null);
+    };
 
     // --- DRAG HANDLERS ---
     const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
@@ -893,6 +970,47 @@ INSTRUCTION: Analyze this data for the Architect.`;
         setInput('');
     };
 
+// --- ANCHOR SESSION HANDLER ---
+    const handleAnchorSession = async () => {
+        // Notify UI that work is starting
+        if (typeof updateStatus === 'function') {
+            updateStatus("GENERATING HOLOGRAPHIC ANCHOR...", "working");
+        }
+        
+        // 1. Compress Chat History
+        // We take the last ~50 messages to keep the payload manageable
+        const historyText = messages.slice(-50).map(m => `${m.sender.toUpperCase()}: ${m.text}`).join('\n');
+        
+        try {
+            // 2. Send to Backend Prism
+            const res = await fetch(`${WORKER_ENDPOINT}admin/anchor`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ history: historyText })
+            });
+            const data = await res.json();
+            
+            // 3. Handle Success
+            if (data.status === "SUCCESS") {
+                if (typeof updateStatus === 'function') updateStatus("SESSION ANCHORED", "success");
+                
+                // 4. Show Confirmation Card in Chat
+                // We use your existing saveMessage function if available, or setMessages directly
+                const confirmationMsg = `**⟡ ANCHOR SECURED**\n\n**SYNTHESIS:** ${data.anchor.synthesis}\n**MYTHOS:** ${data.anchor.mythos}\n\n*State preserved in 4-Table Holographic Core.*`;
+                
+                // Check if you use saveMessage or setMessages
+                // Assuming saveMessage(sender, text, source) exists based on your codebase:
+                await saveMessage('bot', confirmationMsg, 'system'); 
+            } else {
+                if (typeof updateStatus === 'function') updateStatus("ANCHOR FAILURE", "error");
+                console.error("Anchor Error:", data.error);
+            }
+        } catch (e) {
+            console.error("Link Failure:", e);
+            if (typeof updateStatus === 'function') updateStatus("LINK FAILURE", "error");
+        }
+    };
+
     const visibleMessages = messages.filter(m => {
         if (!m.timestamp) return true;
         return m.timestamp.toMillis() > viewSince;
@@ -1201,6 +1319,16 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                         <RotateCcw size={16} /> Restore Range (Undo)
                                     </button>
 
+                                    <button 
+                                        onClick={() => { handleAnchorSession(); setShowMenu(false); }} 
+                                        className="w-full text-left px-4 py-3 text-sm bg-indigo-900/20 hover:bg-indigo-900/40 text-indigo-300 flex items-center gap-3 transition font-bold border-b border-white/5"
+                                    >
+                                        <div className="p-1 border border-indigo-400/50 rounded bg-indigo-500/20">
+                                            <Save size={12} className="text-indigo-400" />
+                                        </div>
+                                        Anchor Session (Save State)
+                                    </button>
+
                                     <button onClick={handlePurgeRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-red-900/20 text-red-400 flex items-center gap-3 border-b border-white/5 transition">
                                         <Trash2 size={16} /> Orbital Purge (Range)
                                     </button>
@@ -1313,7 +1441,15 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                 </button>
                             </div>
                         )}
-
+                        {/* grilled cheese */}
+                        {dormantAnchor && (
+                            <button 
+                                onClick={restoreSession}
+                                className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-cyan-900/80 text-cyan-200 px-4 py-2 rounded-full text-xs font-mono border border-cyan-500/50 hover:bg-cyan-800 transition animate-pulse shadow-[0_0_15px_rgba(6,182,212,0.4)]"
+                            >
+                                ⟡ RESTORE SESSION CONTEXT
+                            </button>
+                        )}
                         {/* --- FILE STAGING PANEL --- */}
                         {file && !showScrapePanel && (
                             <div className="absolute bottom-24 left-0 right-0 mx-4 bg-slate-900/95 border border-cyan-500/30 rounded-2xl p-4 shadow-[0_0_30px_rgba(8,145,178,0.2)] animate-fade-in-up backdrop-blur-xl z-50">
@@ -1445,7 +1581,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                     animation: scan 2s linear infinite;
                 }
             `}</style>
-            
+
             {/* --- 3D GRAPH OVERLAY --- */}
             {
                 showGraph && (
