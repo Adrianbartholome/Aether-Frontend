@@ -81,10 +81,10 @@ def regenerate_neural_map(db_connection_string):
             degree = G.degree[node_id]
             if degree > 5: 
                 size = 2.0
-                r, g, b = 255, 100, 255 (Pink/Purple)
+                r, g, b = 255, 100, 255 # (Pink/Purple)
             if degree > 10:
                 size = 4.0
-                r, g, b = 255, 200, 50 (Gold)
+                r, g, b = 255, 200, 50 # (Gold)
 
             batch_data.append((
                 node_id, 
