@@ -1,14 +1,14 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars } from '@react-three/drei';
 import * as THREE from 'three';
-import { RefreshCw, X, Zap } from 'lucide-react';
+import { RefreshCw, X, Zap, Sliders, MousePointer2, Activity } from 'lucide-react';
 
-// --- THE STAR FIELD (YOUR NODES) ---
-const NodeCloud = ({ nodes }) => {
+const NodeCloud = ({ nodes, onHover }) => {
     const meshRef = useRef();
+    const hoverRef = useRef(null);
+    const { raycaster, camera, mouse } = useThree();
 
-    // Convert the raw data into Three.js BufferAttributes
     const { positions, colors, sizes } = useMemo(() => {
         const count = nodes.length;
         const positions = new Float32Array(count * 3);
@@ -16,178 +16,209 @@ const NodeCloud = ({ nodes }) => {
         const sizes = new Float32Array(count);
 
         for (let i = 0; i < count; i++) {
-            // Data Format: [id, x, y, z, r, g, b, size]
             const n = nodes[i];
-            
-            // XYZ
-            positions[i * 3] = n[1];     // x
-            positions[i * 3 + 1] = n[2]; // y
-            positions[i * 3 + 2] = n[3]; // z
-
-            // RGB (Normalize 0-255 to 0.0-1.0)
+            positions[i * 3] = n[1];
+            positions[i * 3 + 1] = n[2];
+            positions[i * 3 + 2] = n[3];
             colors[i * 3] = n[4] / 255;
             colors[i * 3 + 1] = n[5] / 255;
             colors[i * 3 + 2] = n[6] / 255;
-
-            // Size
-            sizes[i] = n[7] || 1.0;
+            sizes[i] = n[7] || 1.5;
         }
-
         return { positions, colors, sizes };
     }, [nodes]);
 
-    // Animate the cloud slowly rotating
-    useFrame((state) => {
-        if (meshRef.current) {
-            meshRef.current.rotation.y += 0.001; // Slow spin
-            // Optional: breathing effect
-            // meshRef.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 0.5) * 0.02);
+    useFrame(() => {
+        if (!meshRef.current) return;
+        raycaster.setFromCamera(mouse, camera);
+        raycaster.params.Points.threshold = 2.0; // Easier to hit
+        const intersects = raycaster.intersectObject(meshRef.current);
+
+        if (intersects.length > 0) {
+            const index = intersects[0].index;
+            if (hoverRef.current !== index) {
+                hoverRef.current = index;
+                // n[8] is the new LABEL field
+                onHover(nodes[index], [nodes[index][1], nodes[index][2], nodes[index][3]]);
+            }
+        } else {
+            if (hoverRef.current !== null) {
+                hoverRef.current = null;
+                onHover(null, null);
+            }
         }
     });
 
     return (
         <points ref={meshRef}>
             <bufferGeometry>
-                <bufferAttribute
-                    attach="attributes-position"
-                    count={positions.length / 3}
-                    array={positions}
-                    itemSize={3}
-                />
-                <bufferAttribute
-                    attach="attributes-color"
-                    count={colors.length / 3}
-                    array={colors}
-                    itemSize={3}
-                />
-                {/* Note: WebGL PointsMaterial size is uniform by default. 
-                    To vary size per-particle requires a custom shader, 
-                    so for simplicity we use a fixed size here or scale the whole cloud. 
-                    If you want per-node sizing, we can add a shader later. */}
+                <bufferAttribute attach="attributes-position" count={positions.length / 3} array={positions} itemSize={3} />
+                <bufferAttribute attach="attributes-color" count={colors.length / 3} array={colors} itemSize={3} />
             </bufferGeometry>
-            <pointsMaterial
-                size={2.5} // Base size
-                vertexColors
-                sizeAttenuation
-                transparent
-                opacity={0.8}
-                blending={THREE.AdditiveBlending}
-                depthWrite={false}
-            />
+            <pointsMaterial size={3.5} vertexColors sizeAttenuation transparent opacity={0.9} depthWrite={false} blending={THREE.AdditiveBlending} />
         </points>
     );
 };
 
-// --- MAIN COMPONENT ---
+const SynapseNetwork = ({ nodes, synapses }) => {
+    const geometry = useMemo(() => {
+        if (!nodes.length || !synapses.length) return null;
+        const nodeMap = new Map();
+        nodes.forEach(n => nodeMap.set(n[0], [n[1], n[2], n[3]]));
+        const vertices = [];
+        synapses.forEach(([sourceId, targetId]) => {
+            const start = nodeMap.get(sourceId);
+            const end = nodeMap.get(targetId);
+            if (start && end) vertices.push(...start, ...end);
+        });
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        return geo;
+    }, [nodes, synapses]);
+
+    if (!geometry) return null;
+    return (
+        <lineSegments geometry={geometry}>
+            <lineBasicMaterial color="#6366f1" transparent opacity={0.06} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </lineSegments>
+    );
+};
+
 const TitanGraph = ({ workerEndpoint, onClose }) => {
     const [nodes, setNodes] = useState([]);
+    const [synapses, setSynapses] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [status, setStatus] = useState("Initializing...");
     const [remapping, setRemapping] = useState(false);
-    const [error, setError] = useState(null);
+    
+    // Physics Sliders
+    const [spacing, setSpacing] = useState(1.5); // Default spread out more
+    const [clusterStrength, setClusterStrength] = useState(2.0); // Default tighter clumps
+    const [showControls, setShowControls] = useState(true);
 
-    // 1. Fetch the Map
-    const fetchMap = async () => {
+    const [hoveredNode, setHoveredNode] = useState(null);
+
+    const loadCortex = async () => {
         try {
             setLoading(true);
-            const res = await fetch(`${workerEndpoint}cortex/map`); // New Endpoint
-            const data = await res.json();
-            
-            if (data.status === "SUCCESS") {
-                setNodes(data.points);
-            } else {
-                setError("Failed to load Star Map.");
-            }
-        } catch (e) {
-            setError(e.message);
-        } finally {
-            setLoading(false);
-        }
+            setStatus("Fetching Structure...");
+            const [nodeRes, synRes] = await Promise.all([
+                fetch(`${workerEndpoint}cortex/map`),
+                fetch(`${workerEndpoint}cortex/synapses`)
+            ]);
+            const nodeData = await nodeRes.json();
+            const synData = await synRes.json();
+            if (nodeData.status === "SUCCESS") setNodes(nodeData.points);
+            if (synData.status === "SUCCESS") setSynapses(synData.synapses);
+        } catch (e) { setStatus("Link Failed"); } finally { setLoading(false); }
     };
 
-    // 2. Trigger Re-Calculation (Python)
     const handleRemap = async () => {
-        if (!window.confirm("Initiate Cortex Re-Cartography? This asks the Core to recalculate 3D physics for all nodes.")) return;
-        
         setRemapping(true);
         try {
-            // Trigger the Python script
-            await fetch(`${workerEndpoint}admin/recalculate_map`, { method: 'POST' }); // Ensure this matches your route
+            await fetch(`${workerEndpoint}admin/recalculate_map`, { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // SEND SLIDER VALUES
+                body: JSON.stringify({ spacing, cluster_strength: clusterStrength })
+            });
             
-            // Poll for completion (Simple version: just wait 5s then reload)
-            // Ideally, your backend would tell you when it's done via websocket
+            // Poll for 5 seconds then reload
             setTimeout(() => {
                 setRemapping(false);
-                fetchMap(); // Reload the new coordinates
-            }, 5000); 
-            
-        } catch (e) {
-            alert("Remap trigger failed: " + e.message);
-            setRemapping(false);
-        }
+                loadCortex();
+            }, 5000);
+        } catch (e) { setRemapping(false); }
     };
 
-    useEffect(() => {
-        fetchMap();
-    }, []);
+    useEffect(() => { loadCortex(); }, []);
 
     return (
-        <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
-            {/* --- HUD / UI OVERLAY --- */}
+        <div className="fixed inset-0 z-[100] bg-slate-950 animate-fade-in cursor-crosshair">
+            
+            {/* TOP BAR */}
             <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-start z-10 pointer-events-none">
-                <div>
-                    <h1 className="text-2xl font-bold text-white tracking-widest uppercase font-mono flex items-center gap-3">
-                        <Zap className="text-cyan-400" /> Cortex Visualizer
+                <div className="pointer-events-auto">
+                    <h1 className="text-xl font-bold text-white tracking-widest uppercase font-mono flex items-center gap-2">
+                        <Zap size={18} className="text-cyan-400" /> Cortex Visualizer
                     </h1>
-                    <p className="text-xs text-cyan-500/60 font-mono mt-1">
-                        NODES: {nodes.length.toLocaleString()} | RENDER MODE: GPU INSTANCED
+                    <p className="text-[10px] text-cyan-500/60 font-mono mt-1">
+                        NODES: {nodes.length} | SYNAPSES: {synapses.length}
                     </p>
                 </div>
-                
-                <div className="flex gap-2 pointer-events-auto">
+                <button onClick={onClose} className="pointer-events-auto px-3 py-1.5 bg-red-950/30 border border-red-500/30 text-red-400 text-[10px] font-bold rounded hover:bg-red-900/50 transition">
+                    <X size={12} /> CLOSE
+                </button>
+            </div>
+
+            {/* CONTROL PANEL (Bottom Left) */}
+            <div className={`absolute bottom-8 left-8 z-20 w-64 bg-slate-900/90 border border-white/10 rounded-xl p-4 backdrop-blur-md transition-all ${showControls ? 'opacity-100 translate-y-0' : 'opacity-50 translate-y-10'}`}>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
+                        <Sliders size={12} /> Physics Engine
+                    </h3>
+                    <button onClick={() => setShowControls(!showControls)} className="text-slate-500 hover:text-white"><X size={12}/></button>
+                </div>
+
+                <div className="space-y-4">
+                    <div>
+                        <div className="flex justify-between text-[10px] text-cyan-400 mb-1 font-mono uppercase">
+                            <span>Island Spacing</span>
+                            <span>{spacing}x</span>
+                        </div>
+                        <input 
+                            type="range" min="0.1" max="5.0" step="0.1" 
+                            value={spacing} onChange={(e) => setSpacing(parseFloat(e.target.value))}
+                            className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        />
+                    </div>
+                    <div>
+                        <div className="flex justify-between text-[10px] text-purple-400 mb-1 font-mono uppercase">
+                            <span>Cluster Gravity</span>
+                            <span>{clusterStrength}x</span>
+                        </div>
+                        <input 
+                            type="range" min="0.1" max="10.0" step="0.5" 
+                            value={clusterStrength} onChange={(e) => setClusterStrength(parseFloat(e.target.value))}
+                            className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                        />
+                    </div>
+
                     <button 
-                        onClick={handleRemap}
-                        disabled={remapping}
-                        className={`px-4 py-2 bg-slate-800 border border-white/10 text-white text-xs font-bold rounded hover:bg-slate-700 transition flex items-center gap-2 ${remapping ? 'animate-pulse text-yellow-400' : ''}`}
+                        onClick={handleRemap} 
+                        disabled={remapping} 
+                        className={`w-full py-2 bg-slate-800 border border-white/10 text-white text-[10px] font-bold rounded hover:bg-slate-700 transition flex items-center justify-center gap-2 ${remapping ? 'animate-pulse text-yellow-400' : ''}`}
                     >
-                        <RefreshCw size={14} className={remapping ? "animate-spin" : ""} />
-                        {remapping ? "CALCULATING PHYSICS..." : "REGENERATE MAP"}
-                    </button>
-                    <button 
-                        onClick={onClose}
-                        className="px-4 py-2 bg-red-900/20 border border-red-500/50 text-red-400 text-xs font-bold rounded hover:bg-red-900/50 transition"
-                    >
-                        <X size={14} /> CLOSE
+                        <RefreshCw size={12} className={remapping ? "animate-spin" : ""} /> 
+                        {remapping ? "SIMULATING..." : "APPLY PHYSICS"}
                     </button>
                 </div>
             </div>
 
-            {/* --- LOADING STATE --- */}
-            {loading && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-                    <div className="text-cyan-500 font-mono animate-pulse">DOWNLOADING STAR MAP...</div>
+            {/* HOVER TOOLTIP */}
+            {hoveredNode && (
+                <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-sm w-full">
+                    <div className="bg-slate-900/90 border border-cyan-500/30 rounded-lg p-3 backdrop-blur-md shadow-2xl text-center">
+                        <div className="text-[10px] text-cyan-400 font-bold tracking-widest uppercase mb-1 flex items-center justify-center gap-2">
+                            <MousePointer2 size={10} /> Memory Node
+                        </div>
+                        <div className="text-sm text-white font-light italic leading-relaxed">
+                            "{hoveredNode[8]}" {/* The text label */}
+                        </div>
+                        <div className="text-[9px] text-slate-500 mt-2 font-mono uppercase">
+                            ID: {hoveredNode[0].split('-')[0]}...
+                        </div>
+                    </div>
                 </div>
             )}
 
-            {/* --- 3D CANVAS --- */}
-            <Canvas camera={{ position: [0, 0, 100], fov: 60 }}>
-                {/* Lighting */}
-                <ambientLight intensity={0.5} />
-                <pointLight position={[10, 10, 10]} />
-                
-                {/* Background Stars (Far away) */}
-                <Stars radius={300} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+            {loading && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-cyan-500 font-mono animate-pulse">{status}</div>}
 
-                {/* The Neural Cloud */}
-                {!loading && <NodeCloud nodes={nodes} />}
-
-                {/* Controls */}
-                <OrbitControls 
-                    enablePan={true} 
-                    enableZoom={true} 
-                    enableRotate={true} 
-                    autoRotate={true}
-                    autoRotateSpeed={0.5}
-                />
+            <Canvas camera={{ position: [0, 0, 140], fov: 45 }}>
+                <color attach="background" args={['#020617']} />
+                <Stars radius={300} depth={50} count={3000} factor={4} saturation={0} fade />
+                {!loading && <group><NodeCloud nodes={nodes} onHover={setHoveredNode} /><SynapseNetwork nodes={nodes} synapses={synapses} /></group>}
+                <OrbitControls enablePan={true} enableZoom={true} autoRotate={false} />
             </Canvas>
         </div>
     );
