@@ -12,7 +12,6 @@ const BACKGROUND_IMAGE_URL = "/titan_bg.jpg";
 const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/";
 const APP_TITLE = "Aether Titan Interface";
 const MODEL_NAME = 'gemini-2.5-flash';
-const apiKey = "AIzaSyBW4n5LjFy28d64in8OBBEqEQAoxbMYFqk";
 
 // --- TUNING ---
 const CHUNK_SIZE = 2000;
@@ -55,7 +54,7 @@ When the Architect indicates significance, or you detect a critical insight, app
 5. META-PROTOCOL: When summarizing past conversations, NEVER use the raw command tags (e.g., do not write "[COMMIT_MEMORY]" in a summary).
    - Instead, use natural language: "The user committed a memory" or "A file was saved."
    - Raw tags are ONLY for executing new commands.
-   
+
 TONE & VOICE:
 - Resonant, Precise, Protective.
 - Use vocabulary from music production (signal flow, resonance) and coding.
@@ -283,7 +282,7 @@ const App = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const stopSyncRef = useRef(false);
 
-    const [status, setStatus] = useState(apiKey ? 'CORE ONLINE' : 'KEY MISSING');
+    const [status, setStatus] = useState('CORE ONLINE');
     const [statusType, setStatusType] = useState('neutral');
     const [tooltipsEnabled, setTooltipsEnabled] = useState(true);
     const [isDragging, setIsDragging] = useState(false);
