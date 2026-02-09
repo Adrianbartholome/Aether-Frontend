@@ -292,7 +292,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
             <Canvas camera={{ position: [0, 0, 140], fov: 45 }}>
                 <color attach="background" args={['#020617']} />
                 <Stars radius={300} depth={50} count={3000} factor={4} saturation={0} fade />
-                {!loading && <group><NodeCloud nodes={nodes} onHover={setHoveredNode} /><SynapseNetwork nodes={nodes} synapses={synapses} /></group>}
+                {!loading && <group><NodeCloud nodes={nodes} onHover={(node) => setHoveredNode(node)} /><SynapseNetwork nodes={nodes} synapses={synapses} /></group>}
                 <OrbitControls enablePan={true} enableZoom={true} autoRotate={false} />
             </Canvas>
         </div>
