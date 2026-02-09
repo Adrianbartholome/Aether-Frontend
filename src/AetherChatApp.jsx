@@ -417,20 +417,32 @@ const App = () => {
                     setDormantAnchor(data.anchor);
 
                     // The Polite Greeting
-                    setMessages(prev => [
-                        ...prev,
-                        {
-                            sender: 'bot',
-                            text: "System Online. I have a holographic anchor from our previous session. Would you like a reminder of what we were last talking about?",
-                            source: 'system'
-                        }
-                    ]);
+                    const anchorMessage = "System Online. I have a holographic anchor from our previous session. Would you like a reminder of what we were last talking about?";
+                    
+                    setMessages(prev => {
+                        if (prev.some(m => m.text === anchorMessage)) return prev;
+                        
+                        return [
+                            ...prev,
+                            {
+                                sender: 'bot',
+                                text: anchorMessage,
+                                source: 'system'
+                            }
+                        ];
+                    });
                 } else {
                     // Standard Greeting (First run or no anchor)
-                    setMessages(prev => [
-                        ...prev,
-                        { sender: 'bot', text: "System Online. Ready for input.", source: 'system' }
-                    ]);
+                    const standardMessage = "System Online. Ready for input.";
+                    
+                    setMessages(prev => {
+                        if (prev.some(m => m.text === standardMessage)) return prev;
+                        
+                        return [
+                            ...prev,
+                            { sender: 'bot', text: standardMessage, source: 'system' }
+                        ];
+                    });
                 }
             } catch (e) {
                 console.error("Memory Check Failed", e);
@@ -1387,7 +1399,11 @@ INSTRUCTION: Analyze this data for the Architect.`;
                 {/* --- HEADER (Z-30 FIXED) --- */}
                 <header className="flex justify-between items-center bg-slate-900/40 backdrop-blur-md border-b border-white/10 p-4 rounded-xl shadow-2xl mb-6 relative z-30">
                     <h1 className="text-xl font-bold flex items-center gap-3 italic tracking-tighter text-slate-100">
-                        <Zap className="text-cyan-400 fill-cyan-400/20" />
+                        <img
+                            src="/android-chrome-192x192.png"
+                            alt="Aether Titan Interface"
+                            className="h-10 w-auto rounded-lg shadow-[0_0_15px_rgba(34,211,238,0.2)] border border-cyan-500/20"
+                        />
                         <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-slate-400">
                             {APP_TITLE}
                         </span>
