@@ -129,16 +129,44 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    // Security: Validate and sanitize URLs to prevent XSS
+    const isValidUrl = (url) => {
+        try {
+            const urlObj = new URL(url.startsWith('www.') ? `https://${url}` : url);
+            // Only allow http/https protocols
+            return ['http:', 'https:'].includes(urlObj.protocol);
+        } catch {
+            return false;
+        }
+    };
+
     const formatText = (text) => {
+        // Security: Escape HTML to prevent XSS
+        const escapeHtml = (str) => {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.textContent || div.innerText || '';
+        };
+
         const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
-        return text.split(urlRegex).map((part, i) => {
+        const parts = text.split(urlRegex);
+        
+        return parts.map((part, i) => {
             if (part.match(urlRegex)) {
                 const href = part.startsWith('www.') ? `https://${part}` : part;
-                return (
-                    <a key={i} href={href} target="_blank" rel="noopener noreferrer" className="text-cyan-300 underline hover:text-cyan-100 transition-colors break-all" onClick={(e) => e.stopPropagation()}>{part}</a>
-                );
+                // Security: Validate URL before rendering
+                if (isValidUrl(href)) {
+                    const safeHref = escapeHtml(href);
+                    const safeText = escapeHtml(part);
+                    return (
+                        <a key={i} href={safeHref} target="_blank" rel="noopener noreferrer" className="text-cyan-300 underline hover:text-cyan-100 transition-colors break-all" onClick={(e) => e.stopPropagation()}>{safeText}</a>
+                    );
+                }
+                // If invalid URL, just escape and render as text
+                return <span key={i}>{escapeHtml(part)}</span>;
             }
-            return part;
+            // Security: Escape all text content - React automatically escapes text content
+            return <span key={i}>{part}</span>;
         });
     };
 
@@ -412,32 +440,49 @@ const App = () => {
         checkMemory();
     }, []);
 
+    // Security: Sanitize string to prevent XSS
+    const sanitizeString = (str) => {
+        if (typeof str !== 'string') return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.textContent || div.innerText || '';
+    };
+
     // --- 2. THE RESTORE FUNCTION (Triggered by you) ---
     const restoreSession = () => {
         if (!dormantAnchor) return;
 
         const a = dormantAnchor;
 
+        // Security: Sanitize all anchor data before interpolation
+        const safeSynthesis = sanitizeString(a.synthesis || '');
+        const safeChronos = sanitizeString(a.chronos || '');
+        const safeEthos = sanitizeString(a.ethos || '');
+        const safeLogos = sanitizeString(a.logos || '');
+        const safeMythos = sanitizeString(a.mythos || '');
+        const safeCatalyst = sanitizeString(a.catalyst || '');
+        const safePathos = typeof a.pathos === 'object' ? JSON.stringify(a.pathos) : sanitizeString(String(a.pathos || ''));
+
         // 1. Visual Card (The Reminder)
         const recapCard = `**⟡ SESSION RESTORED**
-    > "${a.synthesis}"
+    > "${safeSynthesis}"
 
     **7-CHANNEL STATE:**
-    • **Chronos:** ${a.chronos}
-    • **Ethos:** ${a.ethos}
-    • **Logos:** ${a.logos}
+    • **Chronos:** ${safeChronos}
+    • **Ethos:** ${safeEthos}
+    • **Logos:** ${safeLogos}
     `;
 
         // 2. The System Injection (The Brain Transplant)
         const systemInjection = `
     [SYSTEM INJECTION: PREVIOUS SESSION STATE]
-    1. CHRONOS: ${a.chronos}
-    2. LOGOS: ${a.logos}
-    3. PATHOS: ${JSON.stringify(a.pathos)}
-    4. ETHOS: ${a.ethos}
-    5. MYTHOS: ${a.mythos}
-    6. CATALYST: ${a.catalyst}
-    7. SYNTHESIS: ${a.synthesis}
+    1. CHRONOS: ${safeChronos}
+    2. LOGOS: ${safeLogos}
+    3. PATHOS: ${safePathos}
+    4. ETHOS: ${safeEthos}
+    5. MYTHOS: ${safeMythos}
+    6. CATALYST: ${safeCatalyst}
+    7. SYNTHESIS: ${safeSynthesis}
 
     INSTRUCTION: Resume operations from this state.
     `;
@@ -464,8 +509,48 @@ const App = () => {
         }
     };
 
+    // Security: Validate file before processing
+    const validateFile = (file) => {
+        if (!file) return { valid: false, error: 'No file provided' };
+        
+        // Security: Limit file size (50MB max)
+        const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+        if (file.size > MAX_FILE_SIZE) {
+            return { valid: false, error: 'File size exceeds 50MB limit' };
+        }
+
+        // Security: Allow only text-based files
+        const allowedTypes = [
+            'text/plain',
+            'text/markdown',
+            'text/csv',
+            'application/json',
+            'text/javascript',
+            'text/css',
+            'text/html',
+            'application/xml',
+            'text/xml'
+        ];
+        
+        // Check MIME type or extension as fallback
+        const isValidType = allowedTypes.includes(file.type) || 
+            /\.(txt|md|csv|json|js|css|html|xml|log)$/i.test(file.name);
+        
+        if (!isValidType) {
+            return { valid: false, error: 'File type not allowed. Only text files are permitted.' };
+        }
+
+        return { valid: true };
+    };
+
     // --- HELPER: CENTRALIZED FILE SELECTION ---
     const handleFileSelection = (selectedFile) => {
+        const validation = validateFile(selectedFile);
+        if (!validation.valid) {
+            updateStatus(`SECURITY: ${validation.error}`, 'error');
+            return;
+        }
+        
         setFile(selectedFile);
         setUploadMode('chat');
         setCoreScore(9);
@@ -548,6 +633,15 @@ const App = () => {
         }
     };
 
+    // Security: Validate numeric input
+    const validateNumericInput = (input, min = 0, max = Number.MAX_SAFE_INTEGER) => {
+        const num = parseInt(input, 10);
+        if (isNaN(num) || num < min || num > max) {
+            return null;
+        }
+        return num;
+    };
+
     // --- PURGE/RESTORE/REHASH UI ---
     const handlePurgeRangeUI = async () => {
         const start = window.prompt("TITAN TARGETING: Start ID");
@@ -555,15 +649,29 @@ const App = () => {
         const end = window.prompt("TITAN TARGETING: End ID");
         if (!end) return;
 
-        const count = parseInt(end) - parseInt(start);
+        // Security: Validate numeric inputs
+        const startId = validateNumericInput(start, 0);
+        const endId = validateNumericInput(end, 0);
+        
+        if (startId === null || endId === null) {
+            updateStatus("SECURITY: Invalid ID format. Only positive integers allowed.", 'error');
+            return;
+        }
+
+        if (startId >= endId) {
+            updateStatus("SECURITY: Start ID must be less than End ID.", 'error');
+            return;
+        }
+
+        const count = endId - startId;
         if (count > 50) {
             if (!window.confirm(`WARNING: Targeting ${count} memory shards. Confirm destruction?`)) return;
         }
 
         await executeTitanCommand({
             action: 'delete_range',
-            target_id: parseInt(start),
-            range_end: parseInt(end)
+            target_id: startId,
+            range_end: endId
         });
         setShowMenu(false);
     };
@@ -574,10 +682,24 @@ const App = () => {
         const end = window.prompt("RESTORE PROTOCOL: End ID");
         if (!end) return;
 
+        // Security: Validate numeric inputs
+        const startId = validateNumericInput(start, 0);
+        const endId = validateNumericInput(end, 0);
+        
+        if (startId === null || endId === null) {
+            updateStatus("SECURITY: Invalid ID format. Only positive integers allowed.", 'error');
+            return;
+        }
+
+        if (startId >= endId) {
+            updateStatus("SECURITY: Start ID must be less than End ID.", 'error');
+            return;
+        }
+
         await executeTitanCommand({
             action: 'restore_range',
-            target_id: parseInt(start),
-            range_end: parseInt(end)
+            target_id: startId,
+            range_end: endId
         });
         setShowMenu(false);
     };
@@ -592,9 +714,12 @@ const App = () => {
         const reason = window.prompt("REQUIRED: Enter a reason for this history rewrite (for the log):");
         if (!reason) return;
 
+        // Security: Sanitize reason input
+        const sanitizedReason = sanitizeString(reason).substring(0, 500); // Limit length
+
         await executeTitanCommand({
             action: 'rehash',
-            note: reason
+            note: sanitizedReason
         });
         setShowMenu(false);
     };
@@ -880,6 +1005,28 @@ INSTRUCTION: Analyze this data for the Architect.`;
             let url = scrapeMatch[1];
             if (!url.startsWith('http')) url = 'https://' + url;
 
+            // Security: Validate URL before processing
+            try {
+                const urlObj = new URL(url);
+                // Only allow http/https protocols
+                if (!['http:', 'https:'].includes(urlObj.protocol)) {
+                    updateStatus("SECURITY: Invalid URL protocol. Only HTTP/HTTPS allowed.", 'error');
+                    setInput('');
+                    return;
+                }
+                // Block localhost and private IPs (security measure)
+                const hostname = urlObj.hostname.toLowerCase();
+                if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+                    updateStatus("SECURITY: Local/internal URLs are not allowed.", 'error');
+                    setInput('');
+                    return;
+                }
+            } catch (e) {
+                updateStatus("SECURITY: Invalid URL format.", 'error');
+                setInput('');
+                return;
+            }
+
             // PAUSE AND OPEN UI
             setScrapeUrl(url);
             setShowScrapePanel(true);
@@ -894,11 +1041,19 @@ INSTRUCTION: Analyze this data for the Architect.`;
         // --- COMMAND PARSING (Delete/Purge) ---
         const rangeMatch = userInput.match(/(?:delete range|purge range)\s+(\d+)-(\d+)/i);
         if (rangeMatch) {
-            const startId = parseInt(rangeMatch[1]);
-            const endId = parseInt(rangeMatch[2]);
+            // Security: Validate numeric inputs
+            const startId = validateNumericInput(rangeMatch[1], 0);
+            const endId = validateNumericInput(rangeMatch[2], 0);
+            
+            if (startId === null || endId === null || startId >= endId) {
+                updateStatus("SECURITY: Invalid ID range format.", 'error');
+                setInput('');
+                return;
+            }
+
             if (endId - startId > 500 && !window.confirm(`Are you sure you want to purge ${endId - startId} memories?`)) return;
             setLoading(true);
-            await saveMessage('user', userInput);
+            await saveMessage('user', sanitizeString(userInput));
             await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
             setLoading(false);
             setInput('');
@@ -907,9 +1062,15 @@ INSTRUCTION: Analyze this data for the Architect.`;
 
         const deleteMatch = userInput.match(/(?:delete id|purge)\s+(\d+)/i);
         if (deleteMatch) {
-            const targetId = parseInt(deleteMatch[1]);
+            // Security: Validate numeric input
+            const targetId = validateNumericInput(deleteMatch[1], 0);
+            if (targetId === null) {
+                updateStatus("SECURITY: Invalid ID format.", 'error');
+                setInput('');
+                return;
+            }
             setLoading(true);
-            await saveMessage('user', userInput);
+            await saveMessage('user', sanitizeString(userInput));
             await executeTitanCommand({ action: 'delete', target_id: targetId });
             setLoading(false);
             setInput('');
@@ -918,12 +1079,29 @@ INSTRUCTION: Analyze this data for the Architect.`;
 
         // --- STANDARD CHAT & FILE LOGIC ---
         setLoading(true);
-        await saveMessage('user', userInput);
+        // Security: Sanitize user input before saving
+        await saveMessage('user', sanitizeString(userInput));
 
         if (file) {
+            // Security: Re-validate file before reading
+            const validation = validateFile(file);
+            if (!validation.valid) {
+                updateStatus(`SECURITY: ${validation.error}`, 'error');
+                clearFile();
+                setLoading(false);
+                return;
+            }
+
             const reader = new FileReader();
             reader.onload = async (ev) => {
                 const fileContent = ev.target.result;
+                // Security: Limit file content size to prevent memory issues
+                if (fileContent.length > 10 * 1024 * 1024) { // 10MB content limit
+                    updateStatus("SECURITY: File content too large (max 10MB).", 'error');
+                    clearFile();
+                    setLoading(false);
+                    return;
+                }
                 if (uploadMode === 'core') {
                     const chunks = chunkText(fileContent, CHUNK_SIZE, CHUNK_OVERLAP);
                     updateStatus(`SHARDING FILE: ${chunks.length} FRAGMENTS...`, 'working');
@@ -1257,8 +1435,12 @@ INSTRUCTION: Analyze this data for the Architect.`;
                                     // 2. If Cancelled, abort
                                     if (inputScore === null) return;
 
-                                    // 3. Parse and Validate (Default to 5 if input is weird)
-                                    const score = parseInt(inputScore) || 5;
+                                    // 3. Security: Validate score input (1-9 only)
+                                    const score = validateNumericInput(inputScore, 1, 9);
+                                    if (score === null) {
+                                        updateStatus("SECURITY: Invalid score. Must be between 1-9.", 'error');
+                                        return;
+                                    }
 
                                     // 4. TRANSMIT WITH OVERRIDE
                                     executeTitanCommand({
