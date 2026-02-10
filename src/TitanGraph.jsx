@@ -44,17 +44,26 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
         if (!sim || !nodes.length) return;
 
         // Map initial data (Standard + Soul)
-        const simNodes = nodes.map(n => ({
-            id: String(n[0]),
-            x: n[1], y: n[2], z: n[3],
-            r: n[4], g: n[5], b: n[6], 
-            size: n[7], 
-            label: n[8],
-            // SOUL PACKET (Indices 9, 10, 11 from backend)
-            valence: n[9] || 0, 
-            arousal: n[10] || 0,
-            emotion: n[11] || "neutral"
-        }));
+        // 2. DATA LOADER (Maps Soul Data)
+        const simNodes = nodes.map(n => {
+            // --- SAFETY CHECK ---
+            // If the backend sends a short array (old code), fill the gaps with defaults.
+            // This prevents "undefined" math from crashing the GPU.
+            const safeValence = (n[9] !== undefined && n[9] !== null) ? n[9] : 0.0;
+            const safeArousal = (n[10] !== undefined && n[10] !== null) ? n[10] : 0.0;
+            const safeEmotion = n[11] || "neutral";
+
+            return {
+                id: String(n[0]),
+                x: n[1] || 0, y: n[2] || 0, z: n[3] || 0,
+                r: n[4] || 100, g: n[5] || 100, b: n[6] || 100, 
+                size: n[7] || 1, 
+                label: n[8] || "Unknown",
+                valence: safeValence,
+                arousal: safeArousal,
+                emotion: safeEmotion
+            };
+        });
 
         sim.nodes(simNodes);
 
@@ -318,10 +327,20 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
             ]);
             const nodeData = await nodeRes.json();
             const synData = await synRes.json();
+
+            // --- ADD THIS LOG ---
+            console.log("🔍 API DEBUG:", nodeData);
+            if (nodeData.points && nodeData.points.length > 0) {
+                console.log("   First Node Length:", nodeData.points[0].length);
+                console.log("   First Node Sample:", nodeData.points[0]);
+            }
+            // --------------------
+
             if (nodeData.status === "SUCCESS") setNodes(nodeData.points);
             if (synData.status === "SUCCESS") setSynapses(synData.synapses);
         } catch (e) { console.error("Load Failed", e); } 
         finally { setLoading(false); }
+  
     };
 
     useEffect(() => { loadCortex(); }, []);
@@ -343,6 +362,36 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                     </p>
                 </div>
                 <div className="flex gap-2 pointer-events-auto">
+                    {/* REGENERATE BUTTON - The Fixer */}
+                    <button 
+                        onClick={async () => {
+                            const btn = document.getElementById('regen-btn');
+                            if(btn) {
+                                btn.innerHTML = "♻️ FIXING DB...";
+                                btn.classList.add("animate-pulse");
+                            }
+                            
+                            try {
+                                // 1. Trigger the backend to add columns & map data
+                                await fetch(`${workerEndpoint}cortex/regenerate`, { method: 'POST' });
+                                
+                                // 2. Reload the visual data now that DB is fixed
+                                await loadCortex();
+                            } catch (err) {
+                                console.error("Regen failed:", err);
+                            } finally {
+                                if(btn) {
+                                    btn.innerHTML = "♻️ REFRESH";
+                                    btn.classList.remove("animate-pulse");
+                                }
+                            }
+                        }} 
+                        id="regen-btn"
+                        className="px-3 py-1.5 bg-cyan-950/30 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold rounded hover:bg-cyan-900/50 transition flex items-center gap-2"
+                    >
+                        ♻️ REFRESH
+                    </button>
+
                     <button onClick={onClose} className="px-3 py-1.5 bg-red-950/30 border border-red-500/30 text-red-400 text-[10px] font-bold rounded hover:bg-red-900/50 transition">
                         <X size={12} /> CLOSE
                     </button>
