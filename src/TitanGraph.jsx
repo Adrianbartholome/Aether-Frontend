@@ -415,9 +415,16 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                                 </div>
                                 <input type="range" min="0.1" max="5.0" step="0.1" value={physics.clusterStrength} onChange={(e) => setPhysics({...physics, clusterStrength: parseFloat(e.target.value)})} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"/>
                             </div>
+                            <div>
+                                <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
+                                    <span>Universe Scale</span>
+                                    <span>{physics.scale}</span>
+                                </div>
+                                <input type="range" min="100" max="5000" step="100" value={physics.scale} onChange={(e) => setPhysics({...physics, scale: parseFloat(e.target.value)})} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"/>
+                            </div>
                         </div>
                     )}
-
+                    
                     <div className="bg-black/50 rounded p-2 border border-white/5 font-mono text-[10px] h-16 flex flex-col justify-end overflow-hidden">
                         <div className="text-slate-500 mb-1 flex items-center gap-1"><Terminal size={8}/> SYSTEM LOG:</div>
                         <div className={`break-words ${isLive ? 'text-emerald-400' : 'text-slate-400'}`}>
