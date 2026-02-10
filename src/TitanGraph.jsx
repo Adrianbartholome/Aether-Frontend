@@ -2,8 +2,8 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars } from '@react-three/drei';
 import * as THREE from 'three';
-import { X, Zap, Sliders, MousePointer2, Terminal, Play, Pause, Eye, EyeOff, Lock, Unlock } from 'lucide-react';
-import { forceSimulation, forceManyBody, forceCenter, forceLink } from 'd3-force-3d'; 
+import { X, Zap, Sliders, MousePointer2, Terminal, Play, Pause, Eye, EyeOff, Lock, Unlock, Aperture, Activity } from 'lucide-react';
+import { forceSimulation, forceManyBody, forceCenter, forceLink, forceX, forceY, forceZ } from 'd3-force-3d'; 
 
 // --- HELPER: TEXTURE GENERATOR ---
 const createCircleTexture = () => {
@@ -24,13 +24,13 @@ const createCircleTexture = () => {
 };
 
 // --- 1. THE NODES (Reflex Engine) ---
-const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, simRef }) => {
+const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMode, simRef }) => {
     const meshRef = useRef();
     const { raycaster, camera, mouse } = useThree();
     const starTexture = useMemo(() => createCircleTexture(), []);
     const hoverRef = useRef(null);
 
-    // 1. INITIALIZE ENGINE (Run Once)
+    // 1. INITIALIZE ENGINE
     useEffect(() => {
         simRef.current = forceSimulation()
             .numDimensions(3)
@@ -38,26 +38,33 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, simRef
         return () => simRef.current?.stop();
     }, []); 
 
-    // 2. DATA LOADER
+    // 2. DATA LOADER (Maps Soul Data)
     useEffect(() => {
         const sim = simRef.current;
         if (!sim || !nodes.length) return;
 
+        // Map initial data (Standard + Soul)
         const simNodes = nodes.map(n => ({
             id: String(n[0]),
             x: n[1], y: n[2], z: n[3],
             r: n[4], g: n[5], b: n[6], 
             size: n[7], 
-            label: n[8] 
+            label: n[8],
+            // SOUL PACKET (Indices 9, 10, 11 from backend)
+            valence: n[9] || 0, 
+            arousal: n[10] || 0,
+            emotion: n[11] || "neutral"
         }));
 
         sim.nodes(simNodes);
 
+        // Map Synapses
         const nodeIds = new Set(simNodes.map(n => n.id));
         const validLinks = synapses
             .map(s => ({ source: String(s[0]), target: String(s[1]) }))
             .filter(l => nodeIds.has(l.source) && nodeIds.has(l.target));
 
+        // Store links for toggling
         sim.force('link', forceLink(validLinks).id(d => d.id));
 
         sim.alpha(1).restart();
@@ -65,56 +72,60 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, simRef
 
     }, [nodes, synapses]); 
 
-    // 3. PHYSICS TUNER (Run when Sliders/Toggle change)
+    // 3. PHYSICS TUNER (The Prism Logic)
     useEffect(() => {
         const sim = simRef.current;
         if (!sim) return;
 
-        // --- NEW: MODE SWITCHING LOGIC ---
-        // You'll need a 'mode' state variable eventually, 
-        // for now let's assume standard is default.
-        
-        if (mode === 'PRISM') {
-            // A. PRISM MODE (Emotions)
+        if (viewMode === 'PRISM') {
+            // --- PRISM MODE (Emotional Gravity) ---
             
-            // 1. Disable Standard Forces
-            sim.force('link', null);   // Cut the synapses
-            sim.force('center', null); // Release the center pull
+            // 1. Cut the bonds (Disable Network Forces)
+            sim.force('link', null);   
+            sim.force('center', null); 
+            sim.force('charge', forceManyBody().strength(-10)); // Slight repulsion to prevent stacking
+
+            // 2. Activate Emotional Attractors
+            // Valence (X): Left (Bad) <-> Right (Good)
+            sim.force('x', forceX(d => (d.valence || 0) * 1500).strength(0.5));
             
-            // 2. Apply "Emotional Gravity" (The Nebula Effect)
-            // (We will implement the detailed math for this later)
-            sim.force('x', forceX(node => node.pathos?.valence > 0 ? 500 : -500).strength(0.5));
+            // Arousal (Y): Down (Low) <-> Up (High)
+            sim.force('y', forceY(d => (d.arousal || 0) * 1500).strength(0.5));
             
+            // Z-Axis: Slight scatter for depth
+            sim.force('z', forceZ(0).strength(0.1));
+
         } else {
-            // B. SYNAPTIC MODE (Standard)
+            // --- SYNAPTIC MODE (Network Gravity) ---
             
-            // 1. Clear Prism Forces (Clean up if we just switched back)
+            // 1. Clear Prism Forces
             sim.force('x', null);
             sim.force('y', null);
+            sim.force('z', null);
 
-            // 2. Apply Standard Forces
+            // 2. Restore Network Forces
             sim.force('charge', forceManyBody().strength(-physics.spacing * 30));
             
             const centerStrength = physics.scale > 0 ? (100 / physics.scale) : 0.05;
             sim.force('center', forceCenter().strength(centerStrength));
 
-            // We need to re-initialize the link force if it was nullified
-            // (Note: This requires validLinks to be accessible or stored in a ref)
-            // For now, we just update the strength assuming the force exists:
+            // Re-bind links (We need to re-initialize link force if we killed it)
+            // Note: In a perfect world we'd cache the link data, but for now we let it re-read from current simulation nodes
+            // Ideally, we don't fully delete 'link', we just set strength to 0. Let's try that safety:
             const linkForce = sim.force('link');
             if (linkForce) {
                 linkForce.strength(physics.clusterStrength * 0.1).distance(30);
             }
         }
 
-        // --- C. EXECUTION (Always Last) ---
+        // Execution Control
         if (isLive) {
-            sim.alpha(1).restart(); // Wake up!
+            sim.alpha(1).restart(); 
         } else {
-            sim.stop(); // Freeze
+            sim.stop(); 
         }
 
-    }, [physics, isLive, mode]); // Add 'mode' to dependencies
+    }, [physics, isLive, viewMode]); // Re-run when Mode switches
 
     // RENDER LOOP
     useFrame(() => {
@@ -174,9 +185,8 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, simRef
         return { positions, colors };
     }, [nodes]);
 
-    // Handle Click Selection
     const handleClick = (e) => {
-        e.stopPropagation(); // Don't let the canvas clear the selection
+        e.stopPropagation();
         const index = e.index;
         const currentNodes = simRef.current.nodes();
         if (currentNodes[index]) {
@@ -206,7 +216,7 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, simRef
 };
 
 // --- 2. THE SYNAPSES ---
-const SynapseNetwork = ({ nodes, synapses, isLive, simRef, hideLinesOnMove }) => {
+const SynapseNetwork = ({ nodes, synapses, isLive, viewMode, simRef, hideLinesOnMove }) => {
     const lineRef = useRef();
 
     const { geometry, indexMap } = useMemo(() => {
@@ -238,7 +248,10 @@ const SynapseNetwork = ({ nodes, synapses, isLive, simRef, hideLinesOnMove }) =>
     }, [nodes, synapses]);
 
     useFrame(() => {
+        // HIDE LINES IN PRISM MODE (They distract from the emotional clusters)
+        if (viewMode === 'PRISM') return;
         if (isLive && hideLinesOnMove) return;
+        
         if (!lineRef.current || !simRef.current || !indexMap) return;
         
         if (isLive) {
@@ -267,6 +280,7 @@ const SynapseNetwork = ({ nodes, synapses, isLive, simRef, hideLinesOnMove }) =>
         }
     });
 
+    if (viewMode === 'PRISM') return null; // No lines in Prism Mode
     if (isLive && hideLinesOnMove) return null;
     if (!geometry) return null;
 
@@ -283,17 +297,17 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     const [synapses, setSynapses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showControls, setShowControls] = useState(true);
-    const [logMessage, setLogMessage] = useState("System Ready.");
     
-    // Physics State
+    // STATES
     const [isLive, setIsLive] = useState(false); 
+    const [viewMode, setViewMode] = useState('SYNAPTIC'); // 'SYNAPTIC' or 'PRISM'
     const [hideLinesOnMove, setHideLinesOnMove] = useState(true); 
     const [physics, setPhysics] = useState({ spacing: 2.0, clusterStrength: 1.0, scale: 2000 });
     
     // Selection State
     const simRef = useRef(null);
     const [hoveredNode, setHoveredNode] = useState(null); 
-    const [selectedNode, setSelectedNode] = useState(null); // The "Pinned" Node
+    const [selectedNode, setSelectedNode] = useState(null); 
 
     const loadCortex = async () => {
         try {
@@ -306,26 +320,26 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
             const synData = await synRes.json();
             if (nodeData.status === "SUCCESS") setNodes(nodeData.points);
             if (synData.status === "SUCCESS") setSynapses(synData.synapses);
-        } catch (e) { setLogMessage("Connection Failed."); } 
+        } catch (e) { console.error("Load Failed", e); } 
         finally { setLoading(false); }
     };
 
     useEffect(() => { loadCortex(); }, []);
 
-    // Active Node Logic: Selection > Hover
     const activeNode = selectedNode || hoveredNode;
     const isPinned = !!selectedNode;
 
     return (
         <div className="fixed inset-0 z-[100] bg-slate-950 animate-fade-in cursor-crosshair font-mono">
-            {/* ... Top Bar omitted for brevity, same as before ... */}
+            
+            {/* --- TOP BAR --- */}
             <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-start z-10 pointer-events-none">
                 <div className="pointer-events-auto">
                     <h1 className="text-xl font-bold text-white tracking-widest uppercase flex items-center gap-2">
                         <Zap size={18} className="text-cyan-400" /> Cortex Visualizer
                     </h1>
                     <p className="text-[10px] text-cyan-500/60 mt-1">
-                        NODES: {nodes.length} | SYNAPSES: {synapses.length} | PHYSICS: {isLive ? "LIVE" : "STATIC"}
+                        NODES: {nodes.length} | MODE: {viewMode} | PHYSICS: {isLive ? "LIVE" : "STATIC"}
                     </p>
                 </div>
                 <div className="flex gap-2 pointer-events-auto">
@@ -335,7 +349,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                 </div>
             </div>
 
-            {/* Controls */}
+            {/* --- CONTROLS PANEL --- */}
             <div className={`absolute bottom-8 left-8 z-20 w-72 bg-slate-900/95 border border-white/10 rounded-xl p-4 backdrop-blur-md transition-all shadow-2xl ${showControls ? 'opacity-100 translate-y-0' : 'opacity-50 translate-y-10'}`}>
                 <div className="flex justify-between items-center mb-4 border-b border-white/5 pb-2">
                     <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
@@ -345,7 +359,25 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                 </div>
 
                 <div className="space-y-5">
-                    <div className="space-y-2">
+                    
+                    {/* MODE SWITCHER */}
+                    <div className="grid grid-cols-2 gap-2">
+                        <button 
+                            onClick={() => setViewMode('SYNAPTIC')} 
+                            className={`py-2 border rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${viewMode === 'SYNAPTIC' ? 'bg-cyan-900/50 border-cyan-500 text-cyan-300' : 'bg-slate-800 border-white/5 text-slate-500 hover:text-white'}`}
+                        >
+                            <Activity size={12} /> SYNAPTIC
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('PRISM')} 
+                            className={`py-2 border rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${viewMode === 'PRISM' ? 'bg-purple-900/50 border-purple-500 text-purple-300' : 'bg-slate-800 border-white/5 text-slate-500 hover:text-white'}`}
+                        >
+                            <Aperture size={12} /> PRISM
+                        </button>
+                    </div>
+
+                    {/* PHYSICS TOGGLES */}
+                    <div className="space-y-2 pt-2 border-t border-white/5">
                         <button 
                             onClick={() => setIsLive(!isLive)} 
                             className={`w-full py-3 border rounded-xl font-bold tracking-widest transition-all flex items-center justify-center gap-2 text-xs ${isLive ? 'bg-emerald-900/50 border-emerald-500 text-emerald-400 animate-pulse' : 'bg-slate-800 border-white/10 text-slate-400 hover:text-white'}`}
@@ -361,48 +393,45 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                                 className={`text-[9px] px-2 py-1 rounded border transition-all flex items-center gap-1 ${!hideLinesOnMove ? 'bg-indigo-900/50 border-indigo-400 text-indigo-300' : 'bg-slate-800 border-white/10 text-slate-500'}`}
                             >
                                 {!hideLinesOnMove ? <Eye size={10} /> : <EyeOff size={10} />}
-                                {hideLinesOnMove ? "HIDE LINES (FAST)" : "SHOW LINES (HEAVY)"}
+                                {hideLinesOnMove ? "HIDE LINES" : "SHOW LINES"}
                             </button>
                         </div>
                     </div>
 
-                    <div>
-                        <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase">
-                            <span>Island Spacing</span>
-                            <span>{physics.spacing}x</span>
+                    {/* SLIDERS (Only for Synaptic Mode) */}
+                    {viewMode === 'SYNAPTIC' && (
+                        <div className="space-y-3 pt-2 border-t border-white/5">
+                            <div>
+                                <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase">
+                                    <span>Island Spacing</span>
+                                    <span>{physics.spacing}x</span>
+                                </div>
+                                <input type="range" min="0.1" max="10.0" step="0.1" value={physics.spacing} onChange={(e) => setPhysics({...physics, spacing: parseFloat(e.target.value)})} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"/>
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-[10px] text-purple-400 mb-1 uppercase">
+                                    <span>Cluster Gravity</span>
+                                    <span>{physics.clusterStrength}x</span>
+                                </div>
+                                <input type="range" min="0.1" max="5.0" step="0.1" value={physics.clusterStrength} onChange={(e) => setPhysics({...physics, clusterStrength: parseFloat(e.target.value)})} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"/>
+                            </div>
                         </div>
-                        <input type="range" min="0.1" max="10.0" step="0.1" value={physics.spacing} onChange={(e) => setPhysics({...physics, spacing: parseFloat(e.target.value)})} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"/>
-                    </div>
-                    <div>
-                        <div className="flex justify-between text-[10px] text-purple-400 mb-1 uppercase">
-                            <span>Cluster Gravity</span>
-                            <span>{physics.clusterStrength}x</span>
-                        </div>
-                        <input type="range" min="0.1" max="5.0" step="0.1" value={physics.clusterStrength} onChange={(e) => setPhysics({...physics, clusterStrength: parseFloat(e.target.value)})} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"/>
-                    </div>
-                    <div>
-                        <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
-                            <span>Universe Scale</span>
-                            <span>{physics.scale}</span>
-                        </div>
-                        <input type="range" min="100" max="5000" step="100" value={physics.scale} onChange={(e) => setPhysics({...physics, scale: parseFloat(e.target.value)})} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"/>
-                    </div>
+                    )}
 
                     <div className="bg-black/50 rounded p-2 border border-white/5 font-mono text-[10px] h-16 flex flex-col justify-end overflow-hidden">
                         <div className="text-slate-500 mb-1 flex items-center gap-1"><Terminal size={8}/> SYSTEM LOG:</div>
                         <div className={`break-words ${isLive ? 'text-emerald-400' : 'text-slate-400'}`}>
-                            {'>'} {isLive ? "Engine Running..." : "Engine Standby."}
+                            {'>'} {viewMode === 'PRISM' ? "Re-aligning to Emotional Spectrum..." : (isLive ? "Engine Running..." : "Engine Standby.")}
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* --- UPDATED INFO WINDOW (STICKY & SELECTABLE) --- */}
+            {/* --- INFO CARD (STICKY) --- */}
             {activeNode && (
                 <div className={`absolute top-24 left-1/2 -translate-x-1/2 z-20 max-w-sm w-full transition-all duration-300 ${isPinned ? 'pointer-events-auto' : 'pointer-events-none'}`}>
                     <div className={`bg-slate-900/95 border backdrop-blur-xl rounded-xl p-5 shadow-2xl relative ${isPinned ? 'border-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.2)]' : 'border-cyan-500/30'}`}>
                         
-                        {/* Pin Indicator / Close Button */}
                         {isPinned && (
                             <button 
                                 onClick={() => setSelectedNode(null)} 
@@ -418,12 +447,26 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                                 {isPinned ? "SIGNAL LOCKED" : "NODE SIGNAL"}
                             </div>
                             
-                            {/* Synthesis / Label */}
                             <div className="text-base text-white font-light italic leading-relaxed mb-4">
                                 "{activeNode.label || activeNode[8] || 'Unknown'}"
                             </div>
 
-                            {/* Full ID (Selectable & Wrappable) */}
+                            {/* --- NEW: PRISM METRICS --- */}
+                            {activeNode.emotion && activeNode.emotion !== "neutral" && (
+                                <div className="grid grid-cols-2 gap-2 w-full mb-3">
+                                    <div className="bg-black/30 rounded p-2 border border-white/5 flex flex-col items-center">
+                                        <div className="text-[8px] uppercase text-slate-500">Emotion</div>
+                                        <div className="text-xs text-purple-300 font-bold uppercase">{activeNode.emotion}</div>
+                                    </div>
+                                    <div className="bg-black/30 rounded p-2 border border-white/5 flex flex-col items-center">
+                                        <div className="text-[8px] uppercase text-slate-500">Intensity</div>
+                                        <div className="text-xs text-emerald-300 font-mono">
+                                            V:{activeNode.valence?.toFixed(2)} A:{activeNode.arousal?.toFixed(2)}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="w-full bg-black/40 rounded p-2 border border-white/5 text-left">
                                 <div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Hologram ID:</div>
                                 <div className="text-[10px] text-cyan-400/80 font-mono break-all select-all hover:text-cyan-300 transition cursor-text">
@@ -437,10 +480,9 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
 
             {loading && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-cyan-500 font-mono animate-pulse">Initializing...</div>}
 
-            {/* --- CANVAS (WITH BACKGROUND CLICK HANDLER) --- */}
             <Canvas 
                 camera={{ position: [0, 0, 140], fov: 45, near: 0.1, far: 20000 }}
-                onPointerMissed={() => setSelectedNode(null)} // Click empty space to unpin
+                onPointerMissed={() => setSelectedNode(null)}
             >
                 <color attach="background" args={['#020617']} />
                 <fog attach="fog" args={['#020617', 2000, 20000]} /> 
@@ -452,15 +494,17 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                             nodes={nodes} 
                             synapses={synapses} 
                             onHover={setHoveredNode} 
-                            onSelect={setSelectedNode} // Connect the click
+                            onSelect={setSelectedNode}
                             physics={physics} 
                             isLive={isLive}
+                            viewMode={viewMode} // Pass Mode Down
                             simRef={simRef}
                         />
                         <SynapseNetwork 
                             nodes={nodes} 
                             synapses={synapses} 
                             isLive={isLive} 
+                            viewMode={viewMode} // Pass Mode Down
                             simRef={simRef}
                             hideLinesOnMove={hideLinesOnMove}
                         />
