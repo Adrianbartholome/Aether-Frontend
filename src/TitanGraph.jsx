@@ -65,25 +65,56 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, simRef
 
     }, [nodes, synapses]); 
 
-    // 3. PHYSICS TUNER
+    // 3. PHYSICS TUNER (Run when Sliders/Toggle change)
     useEffect(() => {
         const sim = simRef.current;
         if (!sim) return;
 
-        sim.force('charge', forceManyBody().strength(-physics.spacing * 30));
+        // --- NEW: MODE SWITCHING LOGIC ---
+        // You'll need a 'mode' state variable eventually, 
+        // for now let's assume standard is default.
         
-        const centerStrength = physics.scale > 0 ? (100 / physics.scale) : 0.05;
-        sim.force('center', forceCenter().strength(centerStrength));
+        if (mode === 'PRISM') {
+            // A. PRISM MODE (Emotions)
+            
+            // 1. Disable Standard Forces
+            sim.force('link', null);   // Cut the synapses
+            sim.force('center', null); // Release the center pull
+            
+            // 2. Apply "Emotional Gravity" (The Nebula Effect)
+            // (We will implement the detailed math for this later)
+            sim.force('x', forceX(node => node.pathos?.valence > 0 ? 500 : -500).strength(0.5));
+            
+        } else {
+            // B. SYNAPTIC MODE (Standard)
+            
+            // 1. Clear Prism Forces (Clean up if we just switched back)
+            sim.force('x', null);
+            sim.force('y', null);
 
-        const linkForce = sim.force('link');
-        if (linkForce) {
-            linkForce.strength(physics.clusterStrength * 0.1).distance(30);
+            // 2. Apply Standard Forces
+            sim.force('charge', forceManyBody().strength(-physics.spacing * 30));
+            
+            const centerStrength = physics.scale > 0 ? (100 / physics.scale) : 0.05;
+            sim.force('center', forceCenter().strength(centerStrength));
+
+            // We need to re-initialize the link force if it was nullified
+            // (Note: This requires validLinks to be accessible or stored in a ref)
+            // For now, we just update the strength assuming the force exists:
+            const linkForce = sim.force('link');
+            if (linkForce) {
+                linkForce.strength(physics.clusterStrength * 0.1).distance(30);
+            }
         }
 
-        if (isLive) sim.alpha(1).restart();
-        else sim.stop();
+        // --- C. EXECUTION (Always Last) ---
+        if (isLive) {
+            sim.alpha(1).restart(); // Wake up!
+        } else {
+            sim.stop(); // Freeze
+        }
 
-    }, [physics, isLive]); 
+    }, [physics, isLive, mode]); // Add 'mode' to dependencies
 
     // RENDER LOOP
     useFrame(() => {
