@@ -87,7 +87,7 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
             });
         }
     }, [processedNodes]);
-
+    // fuck
     // RENDER LOOP (Geometric Layout Engine)
     useFrame((state, delta) => {
         if (!meshRef.current || !processedNodes.length) return;
