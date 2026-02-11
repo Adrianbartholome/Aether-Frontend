@@ -12,19 +12,17 @@
   "dependencies": {
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
-    "@types/three": "^0.182.0",
-    "d3-force-3d": "^3.0.6",
     "emoji-picker-react": "^4.17.2",
     "firebase": "^10.12.0",
     "lucide-react": "^0.378.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-force-graph-3d": "^1.29.0",
     "three": "^0.182.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
+    "@types/three": "^0.182.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
