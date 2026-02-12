@@ -32,48 +32,51 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
     // Smooth transition state
     const lerpNodesRef = useRef([]);
 
-    // 1. DATA PREPROCESSOR (Geometric Base)
-    const processedNodes = useMemo(() => {
-        if (!nodes.length) return [];
+    // 1. DATA PREPROCESSOR (Now handles the Prism Math once per slider change)
+const processedNodes = useMemo(() => {
+    if (!nodes.length) return [];
 
-        const nodeMap = new Map();
-        const results = nodes.map(n => {
-            const safeValence = (n[9] !== undefined && n[9] !== null) ? n[9] : 0.0;
-            const safeArousal = (n[10] !== undefined && n[10] !== null) ? n[10] : 0.0;
-            const node = {
-                id: String(n[0]),
-                baseX: n[1] || 0, baseY: n[2] || 0, baseZ: n[3] || 0,
-                r: n[4] || 100, g: n[5] || 100, b: n[6] || 100,
-                size: n[7] || 1,
-                label: n[8] || "Unknown",
-                valence: safeValence,
-                arousal: safeArousal,
-                emotion: n[11] || "neutral",
-                links: []
-            };
-            nodeMap.set(node.id, node);
+    const nodeMap = new Map();
+    const prismScale = (physics.scale || 2000) / 4.5;
+    const expansionPower = (physics.spacing || 1.0); // We'll fix the "backwards" logic here
 
-            // Convert "Archetype Name" -> Number (-1.0 to 1.0)
-            let hash = 0;
-            for (let i = 0; i < mythos.length; i++) {
-                hash = mythos.charCodeAt(i) + ((hash << 5) - hash);
-            }
-            const layerZ = (hash % 100) / 100;
+    const results = nodes.map(n => {
+        const id = String(n[0]);
+        const mythos = n[13] || "Unknown";
 
-            return {
-                id: String(n[0]),
-                // ... x, y, z, r, g, b, size ...
-                label: n[8],
-                valence: n[9],
-                arousal: n[10],
-                emotion: n[11],
-                ethos: n[12] || "",   // Added safety fallback
-                mythos: mythos,
-                layerZ: layerZ, // [NEW]
-                links: []
-            };
-            return node;
-        });
+        // --- CALCULATE BASE PRISM COORDINATES ONCE ---
+        let v = Math.max(-1, Math.min(1, n[9] || 0));
+        let a = Math.max(-1, Math.min(1, n[10] || 0));
+
+        // Fix the "Backwards" Expansion: 
+        // Small spacing slider (0.1) = high exponent (Contract)
+        // Large spacing slider (1.9) = small exponent (Expand)
+        const exp = 2.0 - expansionPower;
+        const pX = Math.sign(v) * Math.pow(Math.abs(v), exp) * prismScale;
+        const pY = Math.sign(a) * Math.pow(Math.abs(a), exp) * prismScale;
+
+        // Hash for Z-layer
+        let hash = 0;
+        for (let i = 0; i < mythos.length; i++) {
+            hash = mythos.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const layerZ = (hash % 100) / 100;
+        const pZ = layerZ * (physics.prismZ * (prismScale * 0.4));
+
+        const node = {
+            id,
+            baseX: n[1] || 0, baseY: n[2] || 0, baseZ: n[3] || 0,
+            prismX: pX, prismY: pY, prismZ: pZ, // PRE-CALCULATED SAVED STATE
+            layerZ: layerZ, // For soul stratification
+            label: n[8] || "Unknown",
+            emotion: n[11] || "neutral",
+            valence: n[9], arousal: n[10],
+            mythos: mythos, ethos: n[12] || "",
+            links: []
+        };
+        nodeMap.set(id, node);
+        return node;
+    });
 
         // Pre-calculate neighbor map for "Gravity"
         synapses.forEach(s => {
@@ -86,7 +89,7 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
         });
 
         return results;
-    }, [nodes, synapses]);
+}, [nodes, synapses, physics.scale, physics.spacing, physics.prismZ]);
 
     // Update simRef (selection/lines lookup)
     useEffect(() => {
@@ -128,33 +131,23 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
             let targetX, targetY, targetZ;
 
             if (viewMode === 'PRISM') {
-                // --- PRISM MATH UPDATE ---
+                // 1. Get raw baseline (prevents drift)
+                let v = Math.max(-1, Math.min(1, node.valence || 0));
+                let a = Math.max(-1, Math.min(1, node.arousal || 0));
 
-                // 1. Get raw values
-                let v = node.valence || 0;
-                let a = node.arousal || 0;
+                // 2. Flipped Expansion Logic (Right = More Spread)
+                const exp = 2.0 - (p.spacing || 1.0);
+                v = Math.sign(v) * Math.pow(Math.abs(v), exp);
+                a = Math.sign(a) * Math.pow(Math.abs(a), exp);
 
-                // 2. CLAMP OUTLIERS (Fixes "Stray nodes")
-                v = Math.max(-1, Math.min(1, v));
-                a = Math.max(-1, Math.min(1, a));
-
-                // 3. SPREAD CORE (Using 'Island Spacing' slider as Gamma)
-                // Lower value (0.5) = pushes center nodes out. 
-                // Higher value (1.0) = linear distribution.
-                const gamma = p.spacing || 0.6;
-
-                v = Math.sign(v) * Math.pow(Math.abs(v), gamma);
-                a = Math.sign(a) * Math.pow(Math.abs(a), gamma);
-
-                // 4. SCALE (Using 'Universal Scale' slider)
-                // We divide by 4 because the slider goes up to 2000+
-                const prismScale = (p.scale || 1000) / 4;
+                // 3. Master Scale (Baseline 2000)
+                const prismScale = (p.scale || 2000) / 4.5;
                 targetX = v * prismScale;
                 targetY = a * prismScale;
-                // [NEW] Z-AXIS STRATIFICATION
-                // We use the "Soul Stratification" slider (p.clusterStrength) to multiply height
-                // 0 = Flat, 5 = Tall Skyscrapers
-                targetZ = node.layerZ * (p.clusterStrength * 500);
+
+                // 4. Soul Stratification (Z-Axis)
+                const zHeight = (p.prismZ || 0) * (prismScale * 0.4);
+                targetZ = node.layerZ * zHeight;
 
             } else if (isLive) {
                 // ... (Existing Synaptic Logic - UNTOUCHED) ...
@@ -399,7 +392,12 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     const [isLive, setIsLive] = useState(true);
     const [viewMode, setViewMode] = useState('SYNAPTIC');
     const [showSynapses, setShowSynapses] = useState(true);
-    const [physics, setPhysics] = useState({ spacing: 2.0, clusterStrength: 1.0, scale: 2000 });
+    const [physics, setPhysics] = useState({
+        spacing: 2.0,
+        clusterStrength: 1.0,
+        scale: 2000,
+        prismZ: 0.0 // <--- ADD THIS: Initialized to 0
+    });
 
     const simRef = useRef({ nodes: () => [] });
     const [hoveredNode, setHoveredNode] = useState(null);
@@ -437,6 +435,33 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
         }
     };
 
+    const handleRegen = async () => {
+        try {
+            setLoading(true);
+            // 1. Tell Python to start crunching numbers
+            const res = await fetch(`${workerEndpoint}admin/recalculate_map`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(physics) // Send current sliders as config
+            });
+
+            const data = await res.json();
+
+            if (data.status === "SUCCESS") {
+                // 2. Wait a moment for the DB to update, then reload
+                setTimeout(() => {
+                    loadCortex();
+                }, 2000);
+            } else {
+                console.error("Regen failed:", data);
+                setLoading(false);
+            }
+        } catch (e) {
+            console.error("Trigger Error:", e);
+            setLoading(false);
+        }
+    };
+
     useEffect(() => { loadCortex(); }, []);
 
     const activeNode = selectedNode || hoveredNode;
@@ -454,7 +479,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                     </p>
                 </div>
                 <div className="flex gap-2 pointer-events-auto">
-                    <button id="regen-btn" onClick={loadCortex} className="px-3 py-1.5 bg-cyan-950/30 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold rounded hover:bg-cyan-900/50 transition flex items-center gap-2">
+                    <button id="regen-btn" onClick={handleRegen} className="px-3 py-1.5 bg-cyan-950/30 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold rounded hover:bg-cyan-900/50 transition flex items-center gap-2">
                         ♻️ REFRESH
                     </button>
                     <button onClick={onClose} className="px-3 py-1.5 bg-red-950/30 border border-red-500/30 text-red-400 text-[10px] font-bold rounded hover:bg-red-900/50 transition">
@@ -508,40 +533,44 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                             </div>
                         </div>
                     ) : (
-                        /* --- NEW PRISM SLIDERS --- */
-                        <div className="space-y-3 pt-2 border-t border-white/5">
-                            {/* 1. SCALE (Reused) */}
+                        < div className="space-y-3 pt-2 border-t border-white/5">
+                            {/* 1. SCALE (The one I missed!) */}
                             <div>
                                 <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
                                     <span>Prism Scale</span><span>{physics.scale}</span>
                                 </div>
                                 <input
-                                    type="range" min="100" max="3000" step="50"
+                                    type="range" min="500" max="5000" step="100"
                                     value={physics.scale}
                                     onChange={(e) => setPhysics({ ...physics, scale: parseFloat(e.target.value) })}
                                     className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                                 />
                             </div>
 
-                            {/* 2. SPREAD (Reused Spacing) */}
+                            {/* 2. EXPANSION (Flipped Logic) */}
                             <div>
                                 <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase">
-                                    <span>Core Spread (Gamma)</span><span>{physics.spacing}</span>
+                                    <span>Core Expansion</span><span>{physics.spacing}</span>
                                 </div>
                                 <input
-                                    type="range" min="0.1" max="1.5" step="0.05"
+                                    type="range" min="0.1" max="1.9" step="0.05"
                                     value={physics.spacing}
                                     onChange={(e) => setPhysics({ ...physics, spacing: parseFloat(e.target.value) })}
                                     className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                                 />
                             </div>
 
-                            {/* 3. Z-AXIS (Locked/Disabled) */}
-                            <div className="opacity-30 pointer-events-none grayscale">
+                            {/* 3. SOUL LAYERS */}
+                            <div>
                                 <div className="flex justify-between text-[10px] text-purple-400 mb-1 uppercase">
-                                    <span>Z-Axis (Locked)</span><span>--</span>
+                                    <span>Soul Stratification</span><span>{physics.prismZ}</span>
                                 </div>
-                                <input type="range" disabled value={0} className="w-full h-1 bg-slate-800 rounded-lg appearance-none" />
+                                <input
+                                    type="range" min="0" max="5.0" step="0.1"
+                                    value={physics.prismZ}
+                                    onChange={(e) => setPhysics({ ...physics, prismZ: parseFloat(e.target.value) })}
+                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                />
                             </div>
                         </div>
                     )}
@@ -555,52 +584,93 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                 </div>
             </div>
 
-            {activeNode && (
-                <div className={`absolute top-24 left-1/2 -translate-x-1/2 z-20 max-w-sm w-full transition-all duration-300 ${isPinned ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-                    <div className={`bg-slate-900/95 border backdrop-blur-xl rounded-xl p-5 shadow-2xl relative ${isPinned ? 'border-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.2)]' : 'border-cyan-500/30'}`}>
-                        {isPinned && <button onClick={() => setSelectedNode(null)} className="absolute top-2 right-2 text-slate-500 hover:text-white transition bg-black/20 p-1 rounded-full"><X size={14} /></button>}
-                        <div className="flex flex-col items-center text-center">
-                            <div className={`text-[10px] font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2 ${isPinned ? 'text-cyan-300' : 'text-cyan-500'}`}>{isPinned ? <Lock size={12} /> : <Unlock size={12} />}{isPinned ? "SIGNAL LOCKED" : "NODE SIGNAL"}</div>
-                            <div className="text-base text-white font-light italic leading-relaxed mb-4">"{activeNode.label || activeNode[8] || 'Unknown'}"</div>
-                            {activeNode.emotion && activeNode.emotion !== "neutral" && (
-                                <div className="grid grid-cols-2 gap-2 w-full mb-3">
-                                    <div className="bg-black/30 rounded p-2 border border-white/5 flex flex-col items-center">
-                                        <div className="text-[8px] uppercase text-slate-500">Emotion</div>
-                                        <div className="text-xs text-purple-300 font-bold uppercase">{activeNode.emotion}</div>
-                                    </div>
-                                    <div className="bg-black/30 rounded p-2 border border-white/5 flex flex-col items-center">
-                                        <div className="text-[8px] uppercase text-slate-500">Intensity</div>
-                                        <div className="text-xs text-emerald-300 font-mono">V:{activeNode.valence?.toFixed(2)} A:{activeNode.arousal?.toFixed(2)}</div>
-                                    </div>
-                                    <div className="text-base text-white font-light italic leading-relaxed mb-4">
-                                        "{activeNode.label || activeNode[8] || 'Unknown'}"
-                                    </div>
+            {
+                activeNode && (
+                    <div className={`absolute top-24 left-1/2 -translate-x-1/2 z-20 max-w-sm w-full transition-all duration-300 ${isPinned ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+                        <div className={`bg-slate-900/95 border backdrop-blur-xl rounded-xl p-5 shadow-2xl relative ${isPinned ? 'border-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.2)]' : 'border-cyan-500/30'}`}>
+                            {isPinned && <button onClick={() => setSelectedNode(null)} className="absolute top-2 right-2 text-slate-500 hover:text-white transition bg-black/20 p-1 rounded-full"><X size={14} /></button>}
 
-                                    {/* [NEW] SOUL DATA BADGES */}
-                                    {(activeNode.mythos || activeNode.ethos) && (
-                                        <div className="flex gap-2 mb-4 w-full">
-                                            {activeNode.mythos && (
-                                                <div className="flex-1 bg-indigo-950/50 border border-indigo-500/30 p-2 rounded text-center">
-                                                    <div className="text-[8px] text-indigo-300 uppercase tracking-widest mb-1">Archetype</div>
-                                                    <div className="text-xs text-white font-bold">{activeNode.mythos}</div>
-                                                </div>
-                                            )}
-                                            {activeNode.ethos && (
-                                                <div className="flex-1 bg-fuchsia-950/50 border border-fuchsia-500/30 p-2 rounded text-center">
-                                                    <div className="text-[8px] text-fuchsia-300 uppercase tracking-widest mb-1">Ethos</div>
-                                                    <div className="text-xs text-white font-bold">{activeNode.ethos}</div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+                            <div className="flex flex-col items-center text-center">
+                                {/* HEADER */}
+                                <div className={`text-[10px] font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2 ${isPinned ? 'text-cyan-300' : 'text-cyan-500'}`}>
+                                    {isPinned ? <Lock size={12} /> : <Unlock size={12} />}
+                                    {isPinned ? "SIGNAL LOCKED" : "NODE SIGNAL"}
                                 </div>
-                            )}
-                            <div className="w-full bg-black/40 rounded p-2 border border-white/5 text-left"><div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Hologram ID:</div><div className="text-[10px] text-cyan-400/80 font-mono break-all select-all hover:text-cyan-300 transition cursor-text">{activeNode.id || String(activeNode[0] || '')}</div></div>
+
+                                {/* 1. DESCRIPTION (Static Text - No Click to Copy) */}
+                                <div className="text-base text-white font-light italic leading-relaxed mb-4">
+                                    "{activeNode.label || activeNode[8] || 'Unknown'}"
+                                </div>
+
+                                {/* 2. EMOTION GRID */}
+                                {activeNode.emotion && activeNode.emotion !== "neutral" && (
+                                    <div className="grid grid-cols-2 gap-2 w-full mb-3">
+                                        <div
+                                            onClick={() => navigator.clipboard.writeText(activeNode.emotion)}
+                                            className="bg-black/30 rounded p-2 border border-white/5 flex flex-col items-center cursor-pointer hover:bg-white/10 transition active:scale-95"
+                                            title="Click to Copy"
+                                        >
+                                            <div className="text-[8px] uppercase text-slate-500">Emotion</div>
+                                            <div className="text-xs text-purple-300 font-bold uppercase">{activeNode.emotion}</div>
+                                        </div>
+                                        <div
+                                            onClick={() => navigator.clipboard.writeText(`V:${typeof activeNode.valence === 'number' ? activeNode.valence.toFixed(2) : '0.00'} A:${typeof activeNode.arousal === 'number' ? activeNode.arousal.toFixed(2) : '0.00'}`)}
+                                            className="bg-black/30 rounded p-2 border border-white/5 flex flex-col items-center cursor-pointer hover:bg-white/10 transition active:scale-95"
+                                            title="Click to Copy"
+                                        >
+                                            <div className="text-[8px] uppercase text-slate-500">Intensity</div>
+                                            <div className="text-xs text-emerald-300 font-mono">
+                                                V:{typeof activeNode.valence === 'number' ? activeNode.valence.toFixed(2) : '0.00'}
+                                                A:{typeof activeNode.arousal === 'number' ? activeNode.arousal.toFixed(2) : '0.00'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 3. SOUL DATA BADGES */}
+                                {(activeNode.mythos || activeNode.ethos) && (
+                                    <div className="flex gap-2 mb-4 w-full">
+                                        {activeNode.mythos && (
+                                            <div
+                                                onClick={() => navigator.clipboard.writeText(activeNode.mythos)}
+                                                className="flex-1 bg-indigo-950/50 border border-indigo-500/30 p-2 rounded text-center cursor-pointer hover:bg-indigo-900/50 transition active:scale-95"
+                                                title="Click to Copy"
+                                            >
+                                                <div className="text-[8px] text-indigo-300 uppercase tracking-widest mb-1">Archetype</div>
+                                                <div className="text-xs text-white font-bold">{activeNode.mythos}</div>
+                                            </div>
+                                        )}
+                                        {activeNode.ethos && (
+                                            <div
+                                                onClick={() => navigator.clipboard.writeText(activeNode.ethos)}
+                                                className="flex-1 bg-fuchsia-950/50 border border-fuchsia-500/30 p-2 rounded text-center cursor-pointer hover:bg-fuchsia-900/50 transition active:scale-95 overflow-hidden"
+                                                title={activeNode.ethos}
+                                            >
+                                                <div className="text-[8px] text-fuchsia-300 uppercase tracking-widest mb-1">Ethos</div>
+                                                <div className="text-[10px] text-white font-medium leading-tight max-h-24 overflow-y-auto pr-1 text-left scrollbar-hide">
+                                                    {activeNode.ethos}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* FOOTER ID */}
+                                <div
+                                    onClick={() => navigator.clipboard.writeText(activeNode.id || String(activeNode[0] || ''))}
+                                    className="w-full bg-black/40 rounded p-2 border border-white/5 text-left cursor-pointer hover:bg-white/10 transition active:scale-95"
+                                    title="Click to Copy ID"
+                                >
+                                    <div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Hologram ID:</div>
+                                    <div className="text-[10px] text-cyan-400/80 font-mono break-all hover:text-cyan-300 transition">
+                                        {activeNode.id || String(activeNode[0] || '')}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
-
+                )
+            }
             {loading && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-cyan-500 font-mono animate-pulse">Initializing...</div>}
 
             <Canvas camera={{ position: [0, 0, 2000], fov: 45, near: 0.1, far: 20000 }} onPointerMissed={() => setSelectedNode(null)}>
@@ -615,7 +685,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                 )}
                 <OrbitControls enablePan={true} enableZoom={true} autoRotate={false} />
             </Canvas>
-        </div>
+        </div >
     );
 };
 
