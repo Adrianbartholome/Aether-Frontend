@@ -54,12 +54,11 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
             nodeMap.set(node.id, node);
 
             // Convert "Archetype Name" -> Number (-1.0 to 1.0)
-            const mythos = n[13] || "Unknown";
             let hash = 0;
             for (let i = 0; i < mythos.length; i++) {
                 hash = mythos.charCodeAt(i) + ((hash << 5) - hash);
             }
-            const layerZ = (hash % 100) / 100; // Normalized height
+            const layerZ = (hash % 100) / 100;
 
             return {
                 id: String(n[0]),
@@ -68,8 +67,8 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
                 valence: n[9],
                 arousal: n[10],
                 emotion: n[11],
-                ethos: n[12],   // [NEW]
-                mythos: mythos, // [NEW]
+                ethos: n[12] || "",   // Added safety fallback
+                mythos: mythos,
                 layerZ: layerZ, // [NEW]
                 links: []
             };
@@ -413,12 +412,29 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                 fetch(`${workerEndpoint}cortex/map`),
                 fetch(`${workerEndpoint}cortex/synapses`)
             ]);
+
+            // Safety check: Did the server actually reply with OK?
+            if (!nodeRes.ok || !synRes.ok) {
+                throw new Error(`Server Error: Map ${nodeRes.status} / Synapses ${synRes.status}`);
+            }
+
             const nodeData = await nodeRes.json();
             const synData = await synRes.json();
-            if (nodeData.status === "SUCCESS") setNodes(nodeData.points);
-            if (synData.status === "SUCCESS") setSynapses(synData.synapses);
-        } catch (e) { console.error("Load Failed", e); }
-        finally { setLoading(false); }
+
+            // Safety check: Is the data null?
+            if (nodeData && nodeData.status === "SUCCESS") {
+                setNodes(nodeData.points);
+            }
+            if (synData && synData.status === "SUCCESS") {
+                setSynapses(synData.synapses);
+            }
+        } catch (e) {
+            console.error("Load Failed:", e);
+            // Optional: Set empty nodes to prevent crash
+            setNodes([]);
+        } finally {
+            setLoading(false);
+        }
     };
 
     useEffect(() => { loadCortex(); }, []);
