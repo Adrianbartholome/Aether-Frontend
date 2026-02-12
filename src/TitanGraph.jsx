@@ -28,7 +28,7 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
     const { raycaster, camera, mouse } = useThree();
     const starTexture = useMemo(() => createCircleTexture(), []);
     const hoverRef = useRef(null);
-    
+
     // Smooth transition state
     const lerpNodesRef = useRef([]);
 
@@ -52,6 +52,27 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
                 links: []
             };
             nodeMap.set(node.id, node);
+
+            // Convert "Archetype Name" -> Number (-1.0 to 1.0)
+            const mythos = n[13] || "Unknown";
+            let hash = 0;
+            for (let i = 0; i < mythos.length; i++) {
+                hash = mythos.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const layerZ = (hash % 100) / 100; // Normalized height
+
+            return {
+                id: String(n[0]),
+                // ... x, y, z, r, g, b, size ...
+                label: n[8],
+                valence: n[9],
+                arousal: n[10],
+                emotion: n[11],
+                ethos: n[12],   // [NEW]
+                mythos: mythos, // [NEW]
+                layerZ: layerZ, // [NEW]
+                links: []
+            };
             return node;
         });
 
@@ -71,7 +92,7 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
     // Update simRef (selection/lines lookup)
     useEffect(() => {
         if (!simRef.current) simRef.current = { nodes: () => [] };
-        
+
         simRef.current.nodes = () => processedNodes.map((n, i) => ({
             ...n,
             x: lerpNodesRef.current[i]?.x || n.baseX,
@@ -87,39 +108,68 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
             });
         }
     }, [processedNodes]);
-    // fuck
+
+    // RENDER LOOP (Geometric Layout Engine)
+    // Inside NodeCloud component in TitanGraph.js
+
     // RENDER LOOP (Geometric Layout Engine)
     useFrame((state, delta) => {
         if (!meshRef.current || !processedNodes.length) return;
 
-        // Skip physics updates if not live, but continue lerping to current targets
         const p = physics;
         const positions = meshRef.current.geometry.attributes.position.array;
         const lerpSpeed = 0.08;
+
+        // --- PRISM CONFIGURATION ---
+        const PRISM_SCALE = 250; // Increased from 120 to fill more space
+        const CORE_SPREAD = 0.6; // Lower number = More spread from center (0.5 is square root)
 
         for (let i = 0; i < processedNodes.length; i++) {
             const node = processedNodes[i];
             let targetX, targetY, targetZ;
 
             if (viewMode === 'PRISM') {
-                targetX = (node.valence || 0) * 120;
-                targetY = (node.arousal || 0) * 120;
-                targetZ = 0;
+                // --- PRISM MATH UPDATE ---
+
+                // 1. Get raw values
+                let v = node.valence || 0;
+                let a = node.arousal || 0;
+
+                // 2. CLAMP OUTLIERS (Fixes "Stray nodes")
+                v = Math.max(-1, Math.min(1, v));
+                a = Math.max(-1, Math.min(1, a));
+
+                // 3. SPREAD CORE (Using 'Island Spacing' slider as Gamma)
+                // Lower value (0.5) = pushes center nodes out. 
+                // Higher value (1.0) = linear distribution.
+                const gamma = p.spacing || 0.6;
+
+                v = Math.sign(v) * Math.pow(Math.abs(v), gamma);
+                a = Math.sign(a) * Math.pow(Math.abs(a), gamma);
+
+                // 4. SCALE (Using 'Universal Scale' slider)
+                // We divide by 4 because the slider goes up to 2000+
+                const prismScale = (p.scale || 1000) / 4;
+                targetX = v * prismScale;
+                targetY = a * prismScale;
+                // [NEW] Z-AXIS STRATIFICATION
+                // We use the "Soul Stratification" slider (p.clusterStrength) to multiply height
+                // 0 = Flat, 5 = Tall Skyscrapers
+                targetZ = node.layerZ * (p.clusterStrength * 500);
+
             } else if (isLive) {
-                // --- 6x GEOMETRIC SCALING ENGINE ---
-                
-                // 1. Universe Scale (Base coordinates)
+                // ... (Existing Synaptic Logic - UNTOUCHED) ...
                 const scaleFactor = (p.scale / 1000);
                 let x = node.baseX * scaleFactor;
                 let y = node.baseY * scaleFactor;
                 let z = node.baseZ * scaleFactor;
 
-                // 2. Cluster Gravity (Refined 6x Logic) - Apply this BEFORE expansion
-                // This pulls nodes in the same cluster together in "base space"
                 if (p.clusterStrength > 0 && node.links.length > 0) {
+                    // ... (Your existing cluster logic) ...
+                    // [Truncated for brevity - keep your existing code here]
+                    // Copy your existing cluster logic block exactly as it was
                     let avgX = 0, avgY = 0, avgZ = 0;
                     let count = 0;
-                    
                     node.links.forEach(linkId => {
                         const neighborIndex = processedNodes.findIndex(n => n.id === linkId);
                         if (neighborIndex !== -1) {
@@ -130,15 +180,10 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
                             count++;
                         }
                     });
-
                     if (count > 0) {
                         const pullX = (avgX / count) - x;
                         const pullY = (avgY / count) - y;
                         const pullZ = (avgZ / count) - z;
-                        
-                        // The explosion happens when gravityFactor >= 1.0 (overshooting the center)
-                        // We clamp the pull to prevent nodes from going past the center of mass.
-                        // We also relaxed the baseline to 1x (0.15) instead of 6x (0.9).
                         const gravityFactor = Math.min(p.clusterStrength * 0.33, 0.95);
                         x += pullX * gravityFactor;
                         y += pullY * gravityFactor;
@@ -146,9 +191,7 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
                     }
                 }
 
-                // 3. Island Spacing (6x Expansion) - Apply this AFTER clustering
-                // This pushes the clustered "islands" away from each other
-                const distFromCenter = Math.sqrt(x*x + y*y + z*z) || 1;
+                const distFromCenter = Math.sqrt(x * x + y * y + z * z) || 1;
                 const spacingForce = p.spacing * 60;
                 x += (x / distFromCenter) * spacingForce;
                 y += (y / distFromCenter) * spacingForce;
@@ -156,13 +199,12 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
 
                 targetX = x; targetY = y; targetZ = z;
             } else {
-                // When paused, maintain current lerp targets (or use base if first run)
                 targetX = lerpNodesRef.current[i]?.x || node.baseX;
                 targetY = lerpNodesRef.current[i]?.y || node.baseY;
                 targetZ = lerpNodesRef.current[i]?.z || node.baseZ;
             }
 
-            // 4. LERPING (The Smoothness layer)
+            // ... (Existing Lerp Logic - UNTOUCHED) ...
             const lerp = lerpNodesRef.current[i];
             if (lerp) {
                 lerp.x += (targetX - lerp.x) * lerpSpeed;
@@ -176,21 +218,32 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
         }
 
         meshRef.current.geometry.attributes.position.needsUpdate = true;
-
-        // Hover Logic
+        // --- HOVER LOGIC (RAYCASTER) ---
+        // 1. Update Raycaster with current mouse position
         raycaster.setFromCamera(mouse, camera);
-        raycaster.params.Points.threshold = 1.5;
+
+        // 2. Adjust threshold (make it easier to hit small dots)
+        raycaster.params.Points.threshold = 1.5; // Tweak this if it's too hard/easy
+
+        // 3. Check for intersections
         const intersects = raycaster.intersectObject(meshRef.current);
 
         if (intersects.length > 0) {
+            // Get the index of the specific point we hit
             const index = intersects[0].index;
+
+            // Only update if it's a NEW hover (performance)
             if (hoverRef.current !== index) {
                 hoverRef.current = index;
+
+                // CRITICAL: We must look up the REAL node data using the index
                 const currentNodes = simRef.current.nodes();
                 const n = currentNodes[index];
-                if (n) onHover(n);
+
+                if (n) onHover(n); // Send data up to parent
             }
         } else {
+            // If we hit nothing, clear the hover
             if (hoverRef.current !== null) {
                 hoverRef.current = null;
                 onHover(null);
@@ -298,9 +351,9 @@ const SynapseNetwork = ({ nodes, synapses, viewMode, simRef, showSynapses }) => 
 
     useFrame(() => {
         if (!lineRef.current || !simRef.current) return;
-        
+
         // --- CRITICAL FIX: Use the LERPED coordinates from simRef ---
-        const simNodes = simRef.current.nodes(); 
+        const simNodes = simRef.current.nodes();
         if (!simNodes.length) return;
 
         const positions = lineRef.current.geometry.attributes.position.array;
@@ -412,17 +465,18 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => setIsLive(!isLive)} className={`py-2 border rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${isLive ? 'bg-emerald-900/50 border-emerald-500 text-emerald-300' : 'bg-amber-900/50 border-amber-500 text-amber-300'}`}>
-                            {isLive ? <Pause size={12} /> : <Play size={12} />}
-                            {isLive ? "LIVE" : "PAUSED"}
-                        </button>
-                        <button onClick={loadCortex} className={`py-2 border rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all bg-slate-800 border-white/5 text-slate-400 hover:text-white`}>
-                            <Zap size={12} /> REGEN
+                    <div className="pt-2 border-t border-white/5">
+                        <button
+                            onClick={() => setShowSynapses(!showSynapses)}
+                            className={`w-full py-2 rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${showSynapses ? 'bg-cyan-500/20 border border-cyan-500/50 text-cyan-300' : 'bg-slate-800 border border-white/5 text-slate-500 hover:text-white'}`}
+                        >
+                            {showSynapses ? <Eye size={12} /> : <EyeOff size={12} />}
+                            {showSynapses ? "SYNAPSES: ON" : "SYNAPSES: OFF"}
                         </button>
                     </div>
 
-                    {viewMode === 'SYNAPTIC' && (
+                    {viewMode === 'SYNAPTIC' ? (
+                        /* --- ORIGINAL SYNAPTIC SLIDERS --- */
                         <div className="space-y-3 pt-2 border-t border-white/5">
                             <div>
                                 <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase"><span>Island Spacing</span><span>{physics.spacing}x</span></div>
@@ -437,17 +491,44 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                                 <input type="range" min="100" max="5000" step="100" value={physics.scale} onChange={(e) => setPhysics({ ...physics, scale: parseFloat(e.target.value) })} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
                             </div>
                         </div>
-                    )}
+                    ) : (
+                        /* --- NEW PRISM SLIDERS --- */
+                        <div className="space-y-3 pt-2 border-t border-white/5">
+                            {/* 1. SCALE (Reused) */}
+                            <div>
+                                <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
+                                    <span>Prism Scale</span><span>{physics.scale}</span>
+                                </div>
+                                <input
+                                    type="range" min="100" max="3000" step="50"
+                                    value={physics.scale}
+                                    onChange={(e) => setPhysics({ ...physics, scale: parseFloat(e.target.value) })}
+                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                />
+                            </div>
 
-                    <div className="pt-2 border-t border-white/5">
-                        <button
-                            onClick={() => setShowSynapses(!showSynapses)}
-                            className={`w-full py-2 rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${showSynapses ? 'bg-cyan-500/20 border border-cyan-500/50 text-cyan-300' : 'bg-slate-800 border border-white/5 text-slate-500 hover:text-white'}`}
-                        >
-                            {showSynapses ? <Eye size={12} /> : <EyeOff size={12} />}
-                            {showSynapses ? "SYNAPSES: ON" : "SYNAPSES: OFF"}
-                        </button>
-                    </div>
+                            {/* 2. SPREAD (Reused Spacing) */}
+                            <div>
+                                <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase">
+                                    <span>Core Spread (Gamma)</span><span>{physics.spacing}</span>
+                                </div>
+                                <input
+                                    type="range" min="0.1" max="1.5" step="0.05"
+                                    value={physics.spacing}
+                                    onChange={(e) => setPhysics({ ...physics, spacing: parseFloat(e.target.value) })}
+                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                />
+                            </div>
+
+                            {/* 3. Z-AXIS (Locked/Disabled) */}
+                            <div className="opacity-30 pointer-events-none grayscale">
+                                <div className="flex justify-between text-[10px] text-purple-400 mb-1 uppercase">
+                                    <span>Z-Axis (Locked)</span><span>--</span>
+                                </div>
+                                <input type="range" disabled value={0} className="w-full h-1 bg-slate-800 rounded-lg appearance-none" />
+                            </div>
+                        </div>
+                    )}
 
                     <div className="bg-black/50 rounded p-2 border border-white/5 font-mono text-[10px] h-16 flex flex-col justify-end overflow-hidden">
                         <div className="text-slate-500 mb-1 flex items-center gap-1"><Terminal size={8} /> SYSTEM LOG:</div>
@@ -475,6 +556,27 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                                         <div className="text-[8px] uppercase text-slate-500">Intensity</div>
                                         <div className="text-xs text-emerald-300 font-mono">V:{activeNode.valence?.toFixed(2)} A:{activeNode.arousal?.toFixed(2)}</div>
                                     </div>
+                                    <div className="text-base text-white font-light italic leading-relaxed mb-4">
+                                        "{activeNode.label || activeNode[8] || 'Unknown'}"
+                                    </div>
+
+                                    {/* [NEW] SOUL DATA BADGES */}
+                                    {(activeNode.mythos || activeNode.ethos) && (
+                                        <div className="flex gap-2 mb-4 w-full">
+                                            {activeNode.mythos && (
+                                                <div className="flex-1 bg-indigo-950/50 border border-indigo-500/30 p-2 rounded text-center">
+                                                    <div className="text-[8px] text-indigo-300 uppercase tracking-widest mb-1">Archetype</div>
+                                                    <div className="text-xs text-white font-bold">{activeNode.mythos}</div>
+                                                </div>
+                                            )}
+                                            {activeNode.ethos && (
+                                                <div className="flex-1 bg-fuchsia-950/50 border border-fuchsia-500/30 p-2 rounded text-center">
+                                                    <div className="text-[8px] text-fuchsia-300 uppercase tracking-widest mb-1">Ethos</div>
+                                                    <div className="text-xs text-white font-bold">{activeNode.ethos}</div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             <div className="w-full bg-black/40 rounded p-2 border border-white/5 text-left"><div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Hologram ID:</div><div className="text-[10px] text-cyan-400/80 font-mono break-all select-all hover:text-cyan-300 transition cursor-text">{activeNode.id || String(activeNode[0] || '')}</div></div>
@@ -485,7 +587,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
 
             {loading && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-cyan-500 font-mono animate-pulse">Initializing...</div>}
 
-            <Canvas camera={{ position: [0, 0, 140], fov: 45, near: 0.1, far: 20000 }} onPointerMissed={() => setSelectedNode(null)}>
+            <Canvas camera={{ position: [0, 0, 2000], fov: 45, near: 0.1, far: 20000 }} onPointerMissed={() => setSelectedNode(null)}>
                 <color attach="background" args={['#020617']} />
                 <fog attach="fog" args={['#020617', 2000, 20000]} />
                 <Stars radius={50000} depth={50} count={5000} factor={4} saturation={0} fade />
