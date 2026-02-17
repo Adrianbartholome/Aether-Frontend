@@ -7,7 +7,7 @@ import EmojiPicker, { Theme } from 'emoji-picker-react';
 import TitanGraph from './TitanGraph';
 
 // --- CONFIGURATION ---
-const BACKGROUND_IMAGE_URL = "/titan_bg.jpg";
+const BACKGROUND_IMAGE_URL = "/titan/titan_bg.jpg";
 
 const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/";
 const APP_TITLE = "Aether Titan Interface";
@@ -1409,7 +1409,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                 <header className="flex justify-between items-center bg-slate-900/40 backdrop-blur-md border-b border-white/10 p-4 rounded-xl shadow-2xl mb-6 relative z-30">
                     <h1 className="text-xl font-bold flex items-center gap-3 italic tracking-tighter text-slate-100">
                         <img
-                            src="/android-chrome-192x192.png"
+                            src="/titan/android-chrome-192x192.png"
                             alt="Aether Titan Interface"
                             className="h-10 w-auto rounded-lg shadow-[0_0_15px_rgba(34,211,238,0.2)] border border-cyan-500/20"
                         />
