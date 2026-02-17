@@ -1753,6 +1753,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                         </div>
 
                         <textarea
+                            id="titan-input"
                             value={input}
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
@@ -1763,7 +1764,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
                         />
 
                         <Tooltip text="Transmit" enabled={tooltipsEnabled}>
-                            <button type="submit" disabled={loading} className="bg-cyan-600/90 hover:bg-cyan-500 p-3.5 rounded-xl text-white shadow-lg hover:shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all duration-300 mb-1 border border-cyan-400/30 disabled:opacity-50 disabled:shadow-none">
+                            <button id="titan-submit" type="submit" disabled={loading} className="bg-cyan-600/90 hover:bg-cyan-500 p-3.5 rounded-xl text-white shadow-lg hover:shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all duration-300 mb-1 border border-cyan-400/30 disabled:opacity-50 disabled:shadow-none">
                                 <Send size={20} />
                             </button>
                         </Tooltip>
