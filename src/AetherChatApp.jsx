@@ -236,6 +236,10 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
 
 // --- MAIN APP ---
 const App = () => {
+    // Refs for drag and drop debouncing
+    const dragCounter = useRef(0);
+    const dragTimeoutRef = useRef(null);
+
     const [syncThreshold, setSyncThreshold] = useState(5);
     const [syncPhase, setSyncPhase] = useState('IDLE'); // 'IDLE', 'CONFIG', or 'ACTIVE'
 
@@ -523,11 +527,55 @@ const App = () => {
     };
 
     // --- DRAG HANDLERS ---
-    const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
-    const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
+    const handleDragEnter = (e) => {
+        e.preventDefault();
+        e.stopPropagation(); 
+        dragCounter.current++;
+        if (dragTimeoutRef.current) {
+            clearTimeout(dragTimeoutRef.current);
+            dragTimeoutRef.current = null;
+        }
+        if (dragCounter.current === 1) { 
+            setIsDragging(true);
+        }
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation(); 
+        dragCounter.current--;
+
+        if (dragCounter.current === 0) { 
+            if (dragTimeoutRef.current) {
+                clearTimeout(dragTimeoutRef.current); 
+            }
+            dragTimeoutRef.current = setTimeout(() => {
+                setIsDragging(false);
+            }, 50); 
+        }
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault(); 
+        e.stopPropagation(); 
+        if (!isDragging) { 
+            setIsDragging(true);
+        }
+        if (dragTimeoutRef.current) { 
+            clearTimeout(dragTimeoutRef.current);
+            dragTimeoutRef.current = null;
+        }
+    };
+
     const handleDrop = (e) => {
         e.preventDefault();
+        e.stopPropagation(); 
         setIsDragging(false);
+        dragCounter.current = 0; 
+        if (dragTimeoutRef.current) { 
+            clearTimeout(dragTimeoutRef.current);
+            dragTimeoutRef.current = null;
+        }
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
             handleFileSelection(e.dataTransfer.files[0]);
         }
@@ -1151,7 +1199,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
             reader.readAsText(file);
         } else {
             let manualCommitType = null;
-            INTENT_MAP = {
+            const INTENT_MAP = {
                 'summary': ['[COMMIT_SUMMARY]'],
                 'full': ['[COMMIT_MEMORY]'],
                 'file': ['[COMMIT_FILE]']
@@ -1236,8 +1284,9 @@ INSTRUCTION: Analyze this data for the Architect.`;
     return (
         <div
             className="fixed inset-0 w-full h-full overflow-hidden font-sans"
-            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
             onDrop={handleDrop}
         >
             <div
@@ -1398,7 +1447,7 @@ INSTRUCTION: Analyze this data for the Architect.`;
             )}
 
             {isDragging && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center bg-indigo-950/80 backdrop-blur-md border-4 border-dashed border-cyan-400/50 m-6 rounded-3xl animate-pulse">
+                <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-indigo-950/80 backdrop-blur-md border-4 border-dashed border-cyan-400/50 m-6 rounded-3xl animate-pulse">
                     <div className="text-center text-cyan-200">
                         <UploadCloud size={80} className="mx-auto mb-4 text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
                         <h2 className="text-3xl font-black uppercase tracking-[0.3em]">Ingest Protocol</h2>
