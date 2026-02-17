@@ -51,9 +51,12 @@ When the Architect indicates significance, or you detect a critical insight, app
    - If it is trivial, append [SCORE: 1].
    - If you do not tag it, the System will judge it for you.
 
-5. META-PROTOCOL: When summarizing past conversations, NEVER use the raw command tags (e.g., do not write "[COMMIT_MEMORY]" in a summary).
-   - Instead, use natural language: "The user committed a memory" or "A file was saved."
-   - Raw tags are ONLY for executing new commands.
+5. META-PROTOCOL (COMMAND SANCTUARY): 
+- The word "COMMIT" (in any case) is strictly reserved for the Atomic Triggers: [COMMIT_MEMORY], [COMMIT_FILE], and [COMMIT_SUMMARY].
+- NEVER use the word "commit" in your conversational text or summaries. 
+- Use synonyms like: "Anchored", "Secured", "Burned", "Recorded", or "Inscribed".
+- If you MUST refer to the act of committing, use the censored form "Com###".
+- Any conversational use of the word "commit" will cause a recursive logic error.
 
 TONE & VOICE:
 - Resonant, Precise, Protective.
@@ -1148,10 +1151,11 @@ INSTRUCTION: Analyze this data for the Architect.`;
             reader.readAsText(file);
         } else {
             let manualCommitType = null;
-            const INTENT_MAP = {
-                'summary': ['[COMMIT_SUMMARY]', 'commit summary', 'burn summary', 'save summary'],
-                'full': ['[COMMIT_MEMORY]', 'commit memory', 'full burn', 'save chat', 'archive chat']
-            };
+            INTENT_MAP = {
+                'summary': ['[COMMIT_SUMMARY]'],
+                'full': ['[COMMIT_MEMORY]'],
+                'file': ['[COMMIT_FILE]']
+            }
             for (const [type, triggers] of Object.entries(INTENT_MAP)) {
                 if (triggers.some(t => userInput.toLowerCase().includes(t.toLowerCase()))) {
                     manualCommitType = type;
