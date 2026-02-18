@@ -529,39 +529,39 @@ const App = () => {
     // --- DRAG HANDLERS ---
     const handleDragEnter = (e) => {
         e.preventDefault();
-        e.stopPropagation(); 
+        e.stopPropagation();
         dragCounter.current++;
         if (dragTimeoutRef.current) {
             clearTimeout(dragTimeoutRef.current);
             dragTimeoutRef.current = null;
         }
-        if (dragCounter.current === 1) { 
+        if (dragCounter.current === 1) {
             setIsDragging(true);
         }
     };
 
     const handleDragLeave = (e) => {
         e.preventDefault();
-        e.stopPropagation(); 
+        e.stopPropagation();
         dragCounter.current--;
 
-        if (dragCounter.current === 0) { 
+        if (dragCounter.current === 0) {
             if (dragTimeoutRef.current) {
-                clearTimeout(dragTimeoutRef.current); 
+                clearTimeout(dragTimeoutRef.current);
             }
             dragTimeoutRef.current = setTimeout(() => {
                 setIsDragging(false);
-            }, 50); 
+            }, 50);
         }
     };
 
     const handleDragOver = (e) => {
-        e.preventDefault(); 
-        e.stopPropagation(); 
-        if (!isDragging) { 
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDragging) {
             setIsDragging(true);
         }
-        if (dragTimeoutRef.current) { 
+        if (dragTimeoutRef.current) {
             clearTimeout(dragTimeoutRef.current);
             dragTimeoutRef.current = null;
         }
@@ -569,10 +569,10 @@ const App = () => {
 
     const handleDrop = (e) => {
         e.preventDefault();
-        e.stopPropagation(); 
+        e.stopPropagation();
         setIsDragging(false);
-        dragCounter.current = 0; 
-        if (dragTimeoutRef.current) { 
+        dragCounter.current = 0;
+        if (dragTimeoutRef.current) {
             clearTimeout(dragTimeoutRef.current);
             dragTimeoutRef.current = null;
         }
@@ -1049,15 +1049,15 @@ const App = () => {
         else {
             const systemInjection = `[SYSTEM EVENT]: The Scout Node has retrieved raw intelligence for inspection.
             
-SOURCE: ${scrapeUrl}
-STATUS: TRANSIENT (NOT SAVED)
-PAYLOAD TYPE: RAW TEXT
+            SOURCE: ${scrapeUrl}
+            STATUS: TRANSIENT (NOT SAVED)
+            PAYLOAD TYPE: RAW TEXT
 
-*** BEGIN SCOUT DATA ***
-${scrapedText}
-*** END SCOUT DATA ***
+            *** BEGIN SCOUT DATA ***
+            ${scrapedText}
+            *** END SCOUT DATA ***
 
-INSTRUCTION: Analyze this data for the Architect.`;
+            INSTRUCTION: Analyze this data for the Architect.`;
 
             await callGemini(systemInjection, messages);
         }
@@ -1199,21 +1199,51 @@ INSTRUCTION: Analyze this data for the Architect.`;
             reader.readAsText(file);
         } else {
             let manualCommitType = null;
-            const INTENT_MAP = {
-                'summary': ['[COMMIT_SUMMARY]'],
-                'full': ['[COMMIT_MEMORY]'],
-                'file': ['[COMMIT_FILE]']
-            }
+            const INTENT_MAP = { 'summary': ['[COMMIT_SUMMARY]'], 'full': ['[COMMIT_MEMORY]'], 'file': ['[COMMIT_FILE]'] }
+
             for (const [type, triggers] of Object.entries(INTENT_MAP)) {
                 if (triggers.some(t => userInput.toLowerCase().includes(t.toLowerCase()))) {
                     manualCommitType = type;
                 }
             }
+
             if (manualCommitType) {
                 updateStatus(`MANUAL OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
-                const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n');
-                await executeTitanCommand({ action: 'commit', commit_type: manualCommitType, memory_text: historyText });
+
+                // 1. Extract only the DATA following the tag
+                // This fixes the "commit_file, please" bug by isolating the actual content
+                let commitPayload = "";
+                if (manualCommitType === 'file') {
+                    // For file commits, we take the raw data after the tag
+                    commitPayload = userInput.split(/\[COMMIT_FILE\]/i)[1]?.trim() || "";
+                } else {
+                    // For summaries/memories, we include history
+                    commitPayload = messages.map(m => `${m.sender}: ${m.text}`).join('\n') + `\nUser: ${userInput}`;
+                }
+
+                if (!commitPayload) {
+                    updateStatus("ERROR: No data found to commit.", 'error');
+                    setLoading(false);
+                    return;
+                }
+
+                // 2. Commit to Titan
+                await executeTitanCommand({
+                    action: 'commit',
+                    commit_type: manualCommitType,
+                    memory_text: commitPayload
+                });
+
+                // 3. EXIT HERE. 
+                // This stops the crash by preventing the callGemini(userInput) 
+                // that follows, which would have triggered the same logic again.
+                setInput('');
+                setLoading(false);
+                updateStatus("COMMIT SUCCESSFUL", 'success');
+                return;
             }
+
+            // Only if NO manual commit was triggered do we proceed to callGemini
             await callGemini(userInput, messages);
             setLoading(false);
         }
