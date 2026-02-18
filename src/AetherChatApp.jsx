@@ -1117,19 +1117,18 @@ const App = () => {
                 const reader = new FileReader();
                 reader.onload = async (ev) => {
                     const fileContent = ev.target.result;
-                    // ROO'S ENRICHED HANDSHAKE
+                    // ADDING NEWLINES FOR THE BACKEND REGEX
                     const enrichedInput = `${userInput}\n[FILE_CONTENT: ${file.name}]\n${fileContent}`;
                     await callGemini(enrichedInput, messages);
                     clearFile(); setInput(''); setLoading(false);
                 };
                 reader.readAsText(file);
-                return;
             } else {
-                // Fallback for pasted text or other tags
                 await callGemini(userInput, messages);
-                setInput(''); setLoading(false);
+                setInput('');
+                setLoading(false);
             }
-            return; // EXIT: Prevent the double-Gemini loop
+            return; // EXIT HANDLE-SEND
         }
 
         // --- 3. COMMAND PARSING (Delete/Purge) ---
