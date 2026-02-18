@@ -1113,8 +1113,23 @@ const App = () => {
         if (manualCommitType) {
             updateStatus(`TITAN IS ASSESSING: ${manualCommitType.toUpperCase()}`, 'working');
 
-            // We send the FULL input to Gemini. 
-            // Titan will see the tag, understand the data, decide the score, 
+            if (manualCommitType === 'file' && file) {
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    const fileContent = ev.target.result;
+                    // Append file content to the user input for the backend to handle
+                    const enrichedInput = `${userInput}\n\n[FILE_CONTENT: ${file.name}]\n${fileContent}`;
+                    await callGemini(enrichedInput, messages);
+                    clearFile();
+                    setInput('');
+                    setLoading(false);
+                };
+                reader.readAsText(file);
+                return;
+            }
+
+            // We send the FULL input to Gemini.
+            // Titan will see the tag, understand the data, decide the score,
             // and trigger the backend sharding we just fixed above.
             await callGemini(userInput, messages);
 
