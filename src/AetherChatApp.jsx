@@ -1118,11 +1118,12 @@ const App = () => {
                 reader.onload = async (ev) => {
                     const fileContent = ev.target.result;
                     // ROO'S ENRICHED HANDSHAKE
-                    const enrichedInput = `${userInput}\n\n[FILE_CONTENT: ${file.name}]\n${fileContent}`;
+                    const enrichedInput = `${userInput}\n[FILE_CONTENT: ${file.name}]\n${fileContent}`;
                     await callGemini(enrichedInput, messages);
                     clearFile(); setInput(''); setLoading(false);
                 };
                 reader.readAsText(file);
+                return;
             } else {
                 // Fallback for pasted text or other tags
                 await callGemini(userInput, messages);
