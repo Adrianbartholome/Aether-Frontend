@@ -1117,25 +1117,18 @@ const App = () => {
                 const reader = new FileReader();
                 reader.onload = async (ev) => {
                     const fileContent = ev.target.result;
-                    // Append file content to the user input for the backend to handle
+                    // ROO'S ENRICHED HANDSHAKE
                     const enrichedInput = `${userInput}\n\n[FILE_CONTENT: ${file.name}]\n${fileContent}`;
                     await callGemini(enrichedInput, messages);
-                    clearFile();
-                    setInput('');
-                    setLoading(false);
+                    clearFile(); setInput(''); setLoading(false);
                 };
                 reader.readAsText(file);
-                return;
+            } else {
+                // Fallback for pasted text or other tags
+                await callGemini(userInput, messages);
+                setInput(''); setLoading(false);
             }
-
-            // We send the FULL input to Gemini.
-            // Titan will see the tag, understand the data, decide the score,
-            // and trigger the backend sharding we just fixed above.
-            await callGemini(userInput, messages);
-
-            setInput('');
-            setLoading(false);
-            return; // EXIT: Prevent the double-call
+            return; // EXIT: Prevent the double-Gemini loop
         }
 
         // --- 3. COMMAND PARSING (Delete/Purge) ---
