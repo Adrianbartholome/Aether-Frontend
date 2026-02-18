@@ -1210,36 +1210,54 @@ const App = () => {
             if (manualCommitType) {
                 updateStatus(`MANUAL OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
 
-                // 1. Extract only the DATA following the tag
-                // This fixes the "commit_file, please" bug by isolating the actual content
-                let commitPayload = "";
-                if (manualCommitType === 'file') {
-                    // For file commits, we take the raw data after the tag
-                    commitPayload = userInput.split(/\[COMMIT_FILE\]/i)[1]?.trim() || "";
-                } else {
-                    // For summaries/memories, we include history
-                    commitPayload = messages.map(m => `${m.sender}: ${m.text}`).join('\n') + `\nUser: ${userInput}`;
-                }
+                // 1. Get the raw data from the chat input (stripping the tag)
+                const tagRegex = new RegExp(`\\[COMMIT_${manualCommitType.toUpperCase()}\\]`, 'i');
+                const rawData = userInput.replace(tagRegex, '').trim();
 
-                if (!commitPayload) {
-                    updateStatus("ERROR: No data found to commit.", 'error');
+                if (!rawData) {
+                    updateStatus("ERROR: No data found after tag.", 'error');
                     setLoading(false);
                     return;
                 }
 
-                // 2. Commit to Titan
-                await executeTitanCommand({
-                    action: 'commit',
-                    commit_type: manualCommitType,
-                    memory_text: commitPayload
-                });
+                if (manualCommitType === 'file') {
+                    // --- 2. CLONE THE BUTTON LOGIC HERE ---
+                    const chunks = chunkText(rawData, CHUNK_SIZE, CHUNK_OVERLAP);
+                    updateStatus(`SHARDING DATA: ${chunks.length} FRAGMENTS...`, 'working');
 
-                // 3. EXIT HERE. 
-                // This stops the crash by preventing the callGemini(userInput) 
-                // that follows, which would have triggered the same logic again.
+                    let successCount = 0;
+                    for (let i = 0; i < chunks.length; i++) {
+                        updateStatus(`BURNING SHARD ${i + 1}/${chunks.length}...`, 'working');
+                        // We use a generic "Chat_Upload" name since there's no physical file
+                        const chunkWithHeader = `[FILE: Chat_Commit_${Date.now()}.txt | PART ${i + 1}/${chunks.length}] ${chunks[i]}`;
+                        const success = await executeTitanCommand({
+                            action: 'commit',
+                            commit_type: 'file',
+                            memory_text: chunkWithHeader,
+                            override_score: coreScore
+                        });
+                        if (success) successCount++;
+                    }
+
+                    if (successCount === chunks.length) {
+                        const masterPayload = `[MASTER FILE ARCHIVE]: Chat_Commit_${Date.now()}.txt ${rawData}`;
+                        await executeTitanCommand({
+                            action: 'commit',
+                            commit_type: 'file',
+                            memory_text: masterPayload,
+                            override_score: coreScore
+                        });
+                        updateStatus(`ARCHIVE COMPLETE`, 'success');
+                    }
+                } else {
+                    // Handle summary/memory commits as normal
+                    const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n') + `\nUser: ${rawData}`;
+                    await executeTitanCommand({ action: 'commit', commit_type: manualCommitType, memory_text: historyText });
+                }
+
+                // 3. EXIT
                 setInput('');
                 setLoading(false);
-                updateStatus("COMMIT SUCCESSFUL", 'success');
                 return;
             }
 
