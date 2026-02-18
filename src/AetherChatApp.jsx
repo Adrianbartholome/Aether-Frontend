@@ -1111,34 +1111,16 @@ const App = () => {
         }
 
         if (manualCommitType) {
-            updateStatus(`MANUAL OVERRIDE: ${manualCommitType.toUpperCase()}`, 'working');
-            const tagRegex = new RegExp(`\\[COMMIT_${manualCommitType.toUpperCase()}\\]`, 'i');
-            const rawData = userInput.replace(tagRegex, '').trim();
+            updateStatus(`TITAN IS ASSESSING: ${manualCommitType.toUpperCase()}`, 'working');
 
-            if (!rawData) {
-                updateStatus("ERROR: No data found after tag.", 'error');
-                return;
-            }
+            // We send the FULL input to Gemini. 
+            // Titan will see the tag, understand the data, decide the score, 
+            // and trigger the backend sharding we just fixed above.
+            await callGemini(userInput, messages);
 
-            if (manualCommitType === 'file') {
-                const chunks = chunkText(rawData, CHUNK_SIZE, CHUNK_OVERLAP);
-                let successCount = 0;
-                for (let i = 0; i < chunks.length; i++) {
-                    const chunkWithHeader = `[FILE: Chat_Commit_${Date.now()}.txt | PART ${i + 1}/${chunks.length}] ${chunks[i]}`;
-                    const success = await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: chunkWithHeader, override_score: coreScore });
-                    if (success) successCount++;
-                }
-                if (successCount === chunks.length) {
-                    const masterPayload = `[MASTER FILE ARCHIVE]: Chat_Commit_${Date.now()}.txt ${rawData}`;
-                    await executeTitanCommand({ action: 'commit', commit_type: 'file', memory_text: masterPayload, override_score: coreScore });
-                    updateStatus(`ARCHIVE COMPLETE`, 'success');
-                }
-            } else {
-                const historyText = messages.map(m => `${m.sender}: ${m.text}`).join('\n') + `\nUser: ${rawData}`;
-                await executeTitanCommand({ action: 'commit', commit_type: manualCommitType, memory_text: historyText });
-            }
             setInput('');
-            return; // EXIT HERE
+            setLoading(false);
+            return; // EXIT: Prevent the double-call
         }
 
         // --- 3. COMMAND PARSING (Delete/Purge) ---
