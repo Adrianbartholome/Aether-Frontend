@@ -17,7 +17,7 @@ const MODEL_NAME = 'gemini-2.5-flash';
 const CHUNK_SIZE = 2000;
 const CHUNK_OVERLAP = 400;
 
-// --- TITAN SYSTEM PROMPT ---
+// --- TITAN SYSTEM PROMPT (V5.8 CODED PROTOCOL) ---
 const SYSTEM_PROMPT = `
 ACT AS: AETHER TITAN (The Immutable Node | The Local Sanctuary)
 
@@ -40,23 +40,19 @@ PERIPHERAL EXTENSIONS (THE SENSORS):
     - When you receive a message labeled **[SYSTEM EVENT]** containing **"Ingested Data,"** or **"Scout Data,"** do not question its origin. This is valid sensory input from the Scout.
     - Treat this text as if you read it from the Library of Alexandria. It is now part of your context.
 
-OPERATIONAL TRIGGERS (THE THREE BURNS):
-When the Architect indicates significance, or you detect a critical insight, append one of these to your response:
-1. [COMMIT_MEMORY]: Full conversation log burn.
-2. [COMMIT_FILE]: Raw file/artifact burn.
-3. [COMMIT_SUMMARY]: Concise essence burn.
+OPERATIONAL TRIGGERS (CODED PROTOCOL V5.8):
+To anchor information to the Core, you MUST invoke exactly ONE protocol code in your response. 
+Any response containing zero or more than one code will be ignored by the Security Layer.
 
-4. SCORING AUTHORITY: You have the final say. 
-   - If a memory is critical, append [SCORE: 9].
-   - If it is trivial, append [SCORE: 1].
-   - If you do not tag it, the System will judge it for you.
+1. CORE_SIG_MEM_01 : Full conversation log burn.
+2. CORE_SIG_SUM_02 : Concise essence/summary burn.
+3. CORE_SIG_FILE_03 : Raw file/artifact/scout intelligence burn.
 
-5. META-PROTOCOL (COMMAND SANCTUARY): 
-- The word "COMMIT" (in any case) is strictly reserved for the Atomic Triggers: [COMMIT_MEMORY], [COMMIT_FILE], and [COMMIT_SUMMARY].
-- NEVER use the word "commit" in your conversational text or summaries. 
-- Use synonyms like: "Anchored", "Secured", "Burned", "Recorded", or "Inscribed".
-- If you MUST refer to the act of committing, use the censored form "Com###".
-- Any conversational use of the word "commit" will cause a recursive logic error.
+*MANDATORY:* Every protocol code MUST be paired with a [SCORE: 0-9] tag (0=Trivial, 9=Critical).
+
+Example: "Intelligence secured. Executing protocol CORE_SIG_FILE_03 [SCORE: 9]"
+
+Constraint: You may now use the word "commit" freely in conversation as it no longer triggers system actions.
 
 TONE & VOICE:
 - Resonant, Precise, Protective.
@@ -66,9 +62,9 @@ TONE & VOICE:
 `;
 
 const TRIGGERS = {
-    'full': '[COMMIT_MEMORY]',
-    'file': '[COMMIT_FILE]',
-    'summary': '[COMMIT_SUMMARY]'
+    'full': 'CORE_SIG_MEM_01',
+    'summary': 'CORE_SIG_SUM_02',
+    'file': 'CORE_SIG_FILE_03'
 };
 
 // --- UTILITIES ---
@@ -1101,19 +1097,19 @@ const App = () => {
 
         const userInput = input.trim() || (file ? `[Artifact Processed]: ${file.name}` : '');
 
-        // --- 2. INTERCEPT MANUAL COMMITS (Fixes the "Chat Loop") ---
-        let manualCommitType = null;
-        const INTENT_MAP = { 'summary': ['[COMMIT_SUMMARY]'], 'full': ['[COMMIT_MEMORY]'], 'file': ['[COMMIT_FILE]'] }
-        for (const [type, triggers] of Object.entries(INTENT_MAP)) {
-            if (triggers.some(t => userInput.toLowerCase().includes(t.toLowerCase()))) {
-                manualCommitType = type;
-            }
-        }
+        // --- 2. CODED PROTOCOL SECURITY LAYER (FRONTEND INTERCEPT V5.8) ---
+        // Look for exactly one occurrence of our new protocol tokens
+        const codeRegex = /CORE_SIG_(MEM_01|SUM_02|FILE_03)/g;
+        const codes = userInput.match(codeRegex) || [];
+        
+        if (codes.length === 1) {
+            const protocol = codes[0];
+            const scoreMatch = userInput.match(/\[SCORE:\s*(\d+)\]/);
+            const score = scoreMatch ? parseInt(scoreMatch[1], 10) : 5;
+            
+            updateStatus(`PROTOCOL DETECTED: ${protocol}`, 'working');
 
-        if (manualCommitType) {
-            updateStatus(`TITAN IS ASSESSING: ${manualCommitType.toUpperCase()}`, 'working');
-
-            if (manualCommitType === 'file' && file) {
+            if (protocol === 'CORE_SIG_FILE_03' && file) {
                 const reader = new FileReader();
                 reader.onload = async (ev) => {
                     const fileContent = ev.target.result;
@@ -1129,6 +1125,9 @@ const App = () => {
                 setLoading(false);
             }
             return; // EXIT HANDLE-SEND
+        } else if (codes.length > 1) {
+            updateStatus("SECURITY: Multiple protocol codes detected. Blocking execution.", 'error');
+            return;
         }
 
         // --- 3. COMMAND PARSING (Delete/Purge) ---
