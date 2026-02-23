@@ -949,8 +949,9 @@ const App = () => {
             action: 'chat',
             memory_text: query,
             // THE FIX: Prepend the System Prompt to the history
-            history: `[SYSTEM INSTRUCTION]: ${SYSTEM_PROMPT}\n\n[BEGIN CONVERSATION LOG]\n` + context.map(m => `${m.sender}: ${m.text}`).join('\n')
-        };
+// THE FIX: Prepend the System Prompt to the history
+            // V5.8 GHOST FIX: Strictly filter out any messages from before the user clicked "Clear Local Cache"
+            history: `[SYSTEM INSTRUCTION]: ${SYSTEM_PROMPT}\n\n[BEGIN CONVERSATION LOG]\n` + context.filter(m => !m.timestamp || m.timestamp.toMillis() > viewSince).map(m => `${m.sender}: ${m.text}`).join('\n')        };
 
         try {
             const res = await fetch(WORKER_ENDPOINT, {
@@ -1193,8 +1194,8 @@ const App = () => {
         }
 
         // 1. Compress Chat History
-        // We take the last ~50 messages to keep the payload manageable
-        const historyText = messages.slice(-50).map(m => `${m.sender.toUpperCase()}: ${m.text}`).join('\n');
+        // V5.8 GHOST FIX: Only anchor the messages the user can actually see on their screen
+        const historyText = messages.filter(m => !m.timestamp || m.timestamp.toMillis() > viewSince).slice(-50).map(m => `${m.sender.toUpperCase()}: ${m.text}`).join('\n');
 
         try {
             // 2. Send to Backend Prism
