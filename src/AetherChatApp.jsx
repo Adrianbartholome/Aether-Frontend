@@ -1170,7 +1170,8 @@ const App = () => {
                         updateStatus(`ARCHIVE COMPLETE`, 'success');
                     }
                 } else {
-                    await callGemini(`${userInput} FILE CONTENT: ${fileContent}`, messages);
+                    // V5.8 DE-INCEPTION ALIGNMENT: Use exact handover tag format so Backend Regex can catch it.
+                    await callGemini(`${userInput}\n\n[FILE_CONTENT: ${file.name}]\n${fileContent}`, messages);
                 }
                 clearFile();
                 setLoading(false);
