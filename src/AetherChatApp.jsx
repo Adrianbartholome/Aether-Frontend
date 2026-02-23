@@ -1096,7 +1096,9 @@ const App = () => {
 
         if (!input.trim() && !file) return;
 
-        const userInput = input.trim() || (file ? `[Artifact Processed]: ${file.name}` : '');
+        const userInput = file 
+            ? (input.trim() ? `[Artifact Processed]: ${file.name}\n${input.trim()}` : `[Artifact Processed]: ${file.name}`)
+            : input.trim();
 
         // --- 2. CODED PROTOCOL SECURITY LAYER (FRONTEND INTERCEPT V5.8) ---
         // Look for exactly one occurrence of our new protocol tokens
