@@ -1096,8 +1096,9 @@ const App = () => {
 
         if (!input.trim() && !file) return;
 
+        // V5.8 STRICT FORMATTING: Aligns UI sticky note with the core sharding labels
         const userInput = file 
-            ? (input.trim() ? `[Artifact Processed]: ${file.name}\n${input.trim()}` : `[Artifact Processed]: ${file.name}`)
+            ? (input.trim() ? `[FILE: ${file.name}]\n${input.trim()}` : `[FILE: ${file.name}]`)
             : input.trim();
 
         // --- 2. CODED PROTOCOL SECURITY LAYER (FRONTEND INTERCEPT V5.8) ---
