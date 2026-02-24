@@ -1157,6 +1157,18 @@ const App = () => {
                 updateStatus(`SECURITY: ${validation.error}`, 'error');
                 clearFile(); setLoading(false); return;
             }
+
+            // --- ANTI-DUPLICATION PROTOCOL (Pre-Flight Check) ---
+            const checkRes = await executeTitanCommand({ action: 'check_artifact', filename: file.name });
+            if (checkRes && checkRes.exists) {
+                updateStatus("SECURITY: Artifact Already Anchored.", 'error');
+                await saveMessage('bot', `[SYSTEM REJECT]: The artifact '${file.name}' is already woven into the Lithographic Core. Redundant sharding aborted.`, 'system');
+                clearFile(); 
+                setLoading(false); 
+                return;
+            }
+            // ----------------------------------------------------
+
             const reader = new FileReader();
             reader.onload = async (ev) => {
                 const fileContent = ev.target.result;
