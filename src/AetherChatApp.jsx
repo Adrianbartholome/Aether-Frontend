@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw, AlertTriangle, Smile, Save } from 'lucide-react';
-import EmojiPicker, { Theme } from 'emoji-picker-react';
+import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw, AlertTriangle, Smile, Save, Activity } from 'lucide-react';import EmojiPicker, { Theme } from 'emoji-picker-react';
 import TitanGraph from './TitanGraph';
 
 // --- CONFIGURATION ---
