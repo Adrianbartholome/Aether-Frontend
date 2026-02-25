@@ -966,7 +966,6 @@ const App = () => {
             action: 'chat',
             memory_text: query,
             // THE FIX: Prepend the System Prompt to the history
-// THE FIX: Prepend the System Prompt to the history
             // V5.8 GHOST FIX: Strictly filter out any messages from before the user clicked "Clear Local Cache"
             history: `[SYSTEM INSTRUCTION]: ${SYSTEM_PROMPT}\n\n[BEGIN CONVERSATION LOG]\n` + context.filter(m => !m.timestamp || m.timestamp.toMillis() > viewSince).map(m => `${m.sender}: ${m.text}`).join('\n')        };
 
@@ -985,9 +984,13 @@ const App = () => {
                 return;
             }
 
-            // Your backend returns the lithograph result
-            // The AI text is actually inside the lithograph or you might need 
-            // to modify your backend to return the raw AI response text too!
+            // THE FIX: Catch standard backend failures so you aren't flying blind
+            if (data.status === "FAILURE") {
+                updateStatus("CORE REJECT", 'error');
+                await saveMessage('bot', `[SYSTEM ERROR]: ${data.error}`, 'error');
+                return;
+            }
+
             const aiResponse = data.ai_text || "Signal Anchored to Core.";
 
             await saveMessage('bot', aiResponse, 'ai');
