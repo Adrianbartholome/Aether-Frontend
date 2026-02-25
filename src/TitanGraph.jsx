@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars } from '@react-three/drei';
 import * as THREE from 'three';
-import { X, Zap, Sliders, MousePointer2, Terminal, Play, Pause, Eye, EyeOff, Lock, Unlock, Aperture, Activity } from 'lucide-react';
+import { X, Zap, Sliders, MousePointer2, Terminal, Play, Pause, Eye, EyeOff, Lock, Unlock, Aperture, Activity, Search, Target } from 'lucide-react';
 
 // --- HELPER: TEXTURE GENERATOR ---
 const createCircleTexture = () => {
@@ -23,60 +23,73 @@ const createCircleTexture = () => {
 };
 
 // --- 1. THE NODES (Reflex Engine) ---
-const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMode, simRef }) => {
+const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMode, simRef, searchQuery, prismVector, isPrismActive }) => {
     const meshRef = useRef();
     const { raycaster, camera, mouse } = useThree();
     const starTexture = useMemo(() => createCircleTexture(), []);
+
+    // THE FIX: Destroy the canvas texture when unmounting to prevent GPU memory leaks
+    useEffect(() => {
+        return () => starTexture.dispose();
+    }, [starTexture]);
+
     const hoverRef = useRef(null);
 
     // Smooth transition state
     const lerpNodesRef = useRef([]);
 
+    // --- O(1) LOOKUP MAP FOR EXTREME PERFORMANCE ---
+    const nodeIndexMap = useMemo(() => {
+        const map = new Map();
+        if (nodes) nodes.forEach((n, idx) => map.set(String(n[0]), idx));
+        return map;
+    }, [nodes]);
+
     // 1. DATA PREPROCESSOR (Now handles the Prism Math once per slider change)
-const processedNodes = useMemo(() => {
-    if (!nodes.length) return [];
+    const processedNodes = useMemo(() => {
+        if (!nodes.length) return [];
 
-    const nodeMap = new Map();
-    const prismScale = (physics.scale || 2000) / 4.5;
-    const expansionPower = (physics.spacing || 1.0); // We'll fix the "backwards" logic here
+        const nodeMap = new Map();
+        const prismScale = (physics.scale || 2000) / 4.5;
+        const expansionPower = (physics.spacing || 1.0); // We'll fix the "backwards" logic here
 
-    const results = nodes.map(n => {
-        const id = String(n[0]);
-        const mythos = n[13] || "Unknown";
+        const results = nodes.map(n => {
+            const id = String(n[0]);
+            const mythos = n[13] || "Unknown";
 
-        // --- CALCULATE BASE PRISM COORDINATES ONCE ---
-        let v = Math.max(-1, Math.min(1, n[9] || 0));
-        let a = Math.max(-1, Math.min(1, n[10] || 0));
+            // --- CALCULATE BASE PRISM COORDINATES ONCE ---
+            let v = Math.max(-1, Math.min(1, n[9] || 0));
+            let a = Math.max(-1, Math.min(1, n[10] || 0));
 
-        // Fix the "Backwards" Expansion: 
-        // Small spacing slider (0.1) = high exponent (Contract)
-        // Large spacing slider (1.9) = small exponent (Expand)
-        const exp = 2.0 - expansionPower;
-        const pX = Math.sign(v) * Math.pow(Math.abs(v), exp) * prismScale;
-        const pY = Math.sign(a) * Math.pow(Math.abs(a), exp) * prismScale;
+            // Fix the "Backwards" Expansion: 
+            // Small spacing slider (0.1) = high exponent (Contract)
+            // Large spacing slider (1.9) = small exponent (Expand)
+            const exp = 2.0 - expansionPower;
+            const pX = Math.sign(v) * Math.pow(Math.abs(v), exp) * prismScale;
+            const pY = Math.sign(a) * Math.pow(Math.abs(a), exp) * prismScale;
 
-        // Hash for Z-layer
-        let hash = 0;
-        for (let i = 0; i < mythos.length; i++) {
-            hash = mythos.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        const layerZ = (hash % 100) / 100;
-        const pZ = layerZ * (physics.prismZ * (prismScale * 0.4));
+            // Hash for Z-layer
+            let hash = 0;
+            for (let i = 0; i < mythos.length; i++) {
+                hash = mythos.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const layerZ = (hash % 100) / 100;
+            const pZ = layerZ * (physics.prismZ * (prismScale * 0.4));
 
-        const node = {
-            id,
-            baseX: n[1] || 0, baseY: n[2] || 0, baseZ: n[3] || 0,
-            prismX: pX, prismY: pY, prismZ: pZ, // PRE-CALCULATED SAVED STATE
-            layerZ: layerZ, // For soul stratification
-            label: n[8] || "Unknown",
-            emotion: n[11] || "neutral",
-            valence: n[9], arousal: n[10],
-            mythos: mythos, ethos: n[12] || "",
-            links: []
-        };
-        nodeMap.set(id, node);
-        return node;
-    });
+            const node = {
+                id,
+                baseX: n[1] || 0, baseY: n[2] || 0, baseZ: n[3] || 0,
+                prismX: pX, prismY: pY, prismZ: pZ, // PRE-CALCULATED SAVED STATE
+                layerZ: layerZ, // For soul stratification
+                label: n[8] || "Unknown",
+                emotion: n[11] || "neutral",
+                valence: n[9], arousal: n[10],
+                mythos: mythos, ethos: n[12] || "",
+                links: []
+            };
+            nodeMap.set(id, node);
+            return node;
+        });
 
         // Pre-calculate neighbor map for "Gravity"
         synapses.forEach(s => {
@@ -89,7 +102,7 @@ const processedNodes = useMemo(() => {
         });
 
         return results;
-}, [nodes, synapses, physics.scale, physics.spacing, physics.prismZ]);
+    }, [nodes, synapses, physics.scale, physics.spacing, physics.prismZ]);
 
     // Update simRef (selection/lines lookup)
     useEffect(() => {
@@ -163,8 +176,9 @@ const processedNodes = useMemo(() => {
                     let avgX = 0, avgY = 0, avgZ = 0;
                     let count = 0;
                     node.links.forEach(linkId => {
-                        const neighborIndex = processedNodes.findIndex(n => n.id === linkId);
-                        if (neighborIndex !== -1) {
+                        // THE FIX: O(1) Map Lookup instead of O(N) Array Search
+                        const neighborIndex = nodeIndexMap.get(linkId);
+                        if (neighborIndex !== undefined) {
                             const neighbor = processedNodes[neighborIndex];
                             avgX += neighbor.baseX * scaleFactor;
                             avgY += neighbor.baseY * scaleFactor;
@@ -248,31 +262,109 @@ const processedNodes = useMemo(() => {
         const posArr = new Float32Array(count * 3);
         const colArr = new Float32Array(count * 3);
 
+        const searchLower = searchQuery ? searchQuery.toLowerCase() : "";
+        let targetV = 0, targetA = 0, matchCount = 0;
+
+        // --- PASS 1: Find the Emotional Center of the Keyword ---
+        if (searchLower && isPrismActive) {
+            for (let i = 0; i < count; i++) {
+                const n = nodes[i];
+                const textData = `${n[8] || ""} ${n[11] || ""} ${n[12] || ""} ${n[13] || ""}`.toLowerCase();
+                if (textData.includes(searchLower)) {
+                    targetV += (n[9] || 0);
+                    targetA += (n[10] || 0);
+                    matchCount++;
+                }
+            }
+            if (matchCount > 0) {
+                targetV /= matchCount; 
+                targetA /= matchCount; 
+            }
+        }
+
+        // --- PASS 2: Apply Coordinates, Colors, and Polarity ---
         for (let i = 0; i < count; i++) {
             const n = nodes[i];
             posArr[i * 3] = n[1];
             posArr[i * 3 + 1] = n[2];
             posArr[i * 3 + 2] = n[3];
 
+            const val = n[9] || 0;
+            const aro = n[10] || 0;
+            let r, g, b;
+
+            // 1. CONTINUOUS NEBULA COLORS (Matches the UI Pad exactly)
             if (viewMode === 'PRISM') {
-                const val = n[9] || 0;
-                const aro = n[10] || 0;
-                if (val > 0.1) {
-                    colArr[i * 3] = 0.0; colArr[i * 3 + 1] = 1.2 + aro; colArr[i * 3 + 2] = 2.0 + aro;
-                } else if (val < -0.1) {
-                    colArr[i * 3] = 2.0 + aro; colArr[i * 3 + 1] = 0.0; colArr[i * 3 + 2] = 1.2 + aro;
-                } else {
-                    colArr[i * 3] = 0.05; colArr[i * 3 + 1] = 0.05; colArr[i * 3 + 2] = 0.2;
-                }
+                // Map -1.0 -> 1.0 scale to a 0.0 -> 1.0 scale for color math
+                const nV = (val + 1) / 2;
+                const nA = (aro + 1) / 2;
+
+                // Cosmic Blending Math
+                r = nA * 1.5 + (1 - nV) * 0.5;
+                g = nV * 1.2 + nA * 0.3;
+                b = 1.5 - (nA * 0.5) + (1 - nV) * 0.8;
+
+                // Clamp to prevent blowout
+                r = Math.min(2.0, Math.max(0.1, r));
+                g = Math.min(2.0, Math.max(0.1, g));
+                b = Math.min(2.0, Math.max(0.1, b));
             } else {
                 const intensity = n[7] > 2.0 ? 2.0 : 1.0;
-                colArr[i * 3] = (n[4] / 255) * intensity;
-                colArr[i * 3 + 1] = (n[5] / 255) * intensity;
-                colArr[i * 3 + 2] = (n[6] / 255) * intensity;
+                r = (n[4] / 255) * intensity;
+                g = (n[5] / 255) * intensity;
+                b = (n[6] / 255) * intensity;
             }
+
+            // 2. PRISM FILTRATION & HIGHLIGHTS
+            if (isPrismActive) {
+                let resonance = 0.02; // DEEP dim for the background (2% opacity)
+                let isMatch = false;
+
+                if (searchLower) {
+                    const textData = `${n[8] || ""} ${n[11] || ""} ${n[12] || ""} ${n[13] || ""}`.toLowerCase();
+                    
+                    if (textData.includes(searchLower)) {
+                        // DIRECT MATCH: Pure Bright White/Gold to pop off the screen
+                        resonance = 2.0;
+                        r = 2.0; g = 2.0; b = 1.8; 
+                        isMatch = true;
+                    } 
+                    else if (matchCount > 0) {
+                        // INVERSE MATCH: Tight laser spotlight on the opposite side
+                        const invV = targetV * -1;
+                        const invA = targetA * -1;
+                        const distToInverse = Math.sqrt(Math.pow(val - invV, 2) + Math.pow(aro - invA, 2));
+                        
+                        if (distToInverse < 0.25) { // Tightened from 0.6
+                            const intensity = 1.0 - (distToInverse / 0.25);
+                            resonance = 0.1 + (intensity * 2.0);
+                            // Keeps its natural nebula color, just glows brighter
+                        }
+                    }
+                } else {
+                    // AFFECTIVE SONAR (The Puck Flashlight)
+                    const dist = Math.sqrt(Math.pow(val - prismVector.x, 2) + Math.pow(aro - prismVector.y, 2));
+                    if (dist < 0.25) { // Tightened from 0.6
+                        const intensity = 1.0 - (dist / 0.25);
+                        resonance = 0.1 + (intensity * 2.5);
+                        // Keeps its natural nebula color, just glows brighter
+                    }
+                }
+
+                // Apply dimming if it wasn't specifically highlighted
+                if (!isMatch) {
+                    r *= resonance;
+                    g *= resonance;
+                    b *= resonance;
+                }
+            }
+
+            colArr[i * 3] = r;
+            colArr[i * 3 + 1] = g;
+            colArr[i * 3 + 2] = b;
         }
         return { positions: posArr, colors: colArr };
-    }, [nodes, viewMode]);
+    }, [nodes, viewMode, searchQuery, prismVector, isPrismActive]);
 
     useEffect(() => {
         if (meshRef.current) {
@@ -317,6 +409,11 @@ const SynapseNetwork = ({ nodes, synapses, viewMode, simRef, showSynapses }) => 
         if (!nodes) return new Map();
         return new Map(nodes.map((n, index) => [String(n[0]), index]));
     }, [nodes]);
+
+    // THE FIX: Memoize the massive coordinate array so WebGL doesn't rebuild it on hover
+    const positions = useMemo(() => {
+        return new Float32Array(synapses.length * 6);
+    }, [synapses.length]);
 
     const { colors } = useMemo(() => {
         if (!synapses || !nodes) return { colors: new Float32Array(0) };
@@ -374,11 +471,111 @@ const SynapseNetwork = ({ nodes, synapses, viewMode, simRef, showSynapses }) => 
     return (
         <lineSegments ref={lineRef} visible={showSynapses}>
             <bufferGeometry>
-                <bufferAttribute attach="attributes-position" count={synapses.length * 2} array={new Float32Array(synapses.length * 6)} itemSize={3} />
+                <bufferAttribute attach="attributes-position" count={synapses.length * 2} array={positions} itemSize={3} />
                 <bufferAttribute attach="attributes-color" count={colors.length / 3} array={colors} itemSize={3} />
             </bufferGeometry>
             <lineBasicMaterial vertexColors={true} transparent={true} opacity={0.15} blending={THREE.AdditiveBlending} depthWrite={false} />
         </lineSegments>
+    );
+};
+
+// --- PRISM QUERY PANEL (The Diagnostic Dashboard) ---
+const PrismQueryPanel = ({ searchQuery, setSearchQuery, prismVector, setPrismVector, isPrismActive, setIsPrismActive }) => {
+    const padRef = useRef(null);
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Translates Mouse X/Y to Valence/Arousal (-1.0 to 1.0)
+    const handlePointerEvent = (e) => {
+        if (!padRef.current) return;
+        const rect = padRef.current.getBoundingClientRect();
+
+        // Clamp values to stay inside the box
+        let x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+        let y = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+
+        // Convert to -1.0 to 1.0 scale
+        // Valence: Left (-1) to Right (+1)
+        const valence = ((x / rect.width) * 2) - 1;
+        // Arousal: Bottom (-1) to Top (+1) -> Note: Y is inverted in DOM
+        const arousal = (((rect.height - y) / rect.height) * 2) - 1;
+
+        setPrismVector({ x: valence, y: arousal });
+        setIsPrismActive(true);
+    };
+
+    return (
+        <div className="absolute bottom-8 right-8 z-20 w-80 bg-slate-900/95 border border-cyan-500/30 rounded-2xl p-4 backdrop-blur-xl shadow-[0_0_30px_rgba(8,145,178,0.2)] animate-fade-in-up">
+
+            {/* 1. SEMANTIC POLARIZER (Search) */}
+            <div className="mb-4">
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest flex items-center gap-2">
+                        <Search size={12} /> Semantic Query
+                    </h3>
+                    <button
+                        onClick={() => { setSearchQuery(""); setIsPrismActive(false); }}
+                        className="text-[9px] text-slate-500 hover:text-rose-400 uppercase font-bold transition"
+                    >
+                        Clear
+                    </button>
+                </div>
+                <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        if (e.target.value.trim() !== "") setIsPrismActive(true);
+                    }}
+                    placeholder="Search Ethos, Mythos, Emotion..."
+                    className="w-full bg-slate-950/50 border border-white/10 rounded-lg p-2.5 text-xs text-cyan-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50"
+                />
+            </div>
+
+            {/* 2. AFFECTIVE SONAR (X/Y Pad) */}
+            <div>
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-[10px] font-bold text-purple-400 uppercase tracking-widest flex items-center gap-2">
+                        <Target size={12} /> Affective Sonar
+                    </h3>
+                    <div className="text-[9px] font-mono text-slate-400">
+                        V: {prismVector.x.toFixed(2)} | A: {prismVector.y.toFixed(2)}
+                    </div>
+                </div>
+
+                {/* THE PAD */}
+                <div
+                    ref={padRef}
+                    className="relative w-full h-48 rounded-xl border border-white/10 overflow-hidden cursor-crosshair shadow-inner group"
+                    style={{
+                        // Hermetic Cosmic Gradient (Purple -> Blue -> Gold)
+                        background: 'radial-gradient(circle at top right, rgba(250, 204, 21, 0.4), transparent 60%), radial-gradient(circle at bottom left, rgba(56, 189, 248, 0.4), transparent 60%), radial-gradient(circle at center, rgba(147, 51, 234, 0.5), transparent 100%), #0f172a'
+                    }}
+                    onPointerDown={(e) => { setIsDragging(true); handlePointerEvent(e); }}
+                    onPointerMove={(e) => { if (isDragging) handlePointerEvent(e); }}
+                    onPointerUp={() => setIsDragging(false)}
+                    onPointerLeave={() => setIsDragging(false)}
+                >
+                    {/* Grid Overlay */}
+                    <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:16.66%_16.66%] pointer-events-none" />
+
+                    {/* Axis Labels */}
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 -rotate-90 text-[8px] text-white/30 uppercase font-bold pointer-events-none tracking-widest">Arousal</span>
+                    <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[8px] text-white/30 uppercase font-bold pointer-events-none tracking-widest">Valence</span>
+
+                    {/* THE PUCK */}
+                    <div
+                        className="absolute w-6 h-6 -ml-3 -mb-3 rounded-full border-2 border-white bg-white/20 backdrop-blur-md shadow-[0_0_15px_rgba(255,255,255,0.8)] pointer-events-none transition-transform duration-75"
+                        style={{
+                            left: `${((prismVector.x + 1) / 2) * 100}%`,
+                            bottom: `${((prismVector.y + 1) / 2) * 100}%`,
+                            boxShadow: isPrismActive ? '0 0 20px rgba(255,255,255,0.9), inset 0 0 10px rgba(255,255,255,0.5)' : '0 0 10px rgba(255,255,255,0.2)'
+                        }}
+                    >
+                        <div className="absolute inset-1 bg-white rounded-full animate-pulse" />
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 };
 
@@ -388,6 +585,11 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     const [synapses, setSynapses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showControls, setShowControls] = useState(true);
+
+    // --- PRISM ENGINE STATE ---
+    const [searchQuery, setSearchQuery] = useState("");
+    const [prismVector, setPrismVector] = useState({ x: 0, y: 0 });
+    const [isPrismActive, setIsPrismActive] = useState(false);
 
     const [isLive, setIsLive] = useState(true);
     const [viewMode, setViewMode] = useState('SYNAPTIC');
@@ -553,7 +755,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                                     <span>Core Expansion</span><span>{physics.spacing}</span>
                                 </div>
                                 <input
-                                    type="range" min="0.1" max="1.9" step="0.05"
+                                    type="range" min="0.1" max="2" step="0.05"
                                     value={physics.spacing}
                                     onChange={(e) => setPhysics({ ...physics, spacing: parseFloat(e.target.value) })}
                                     className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
@@ -673,13 +875,27 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
             }
             {loading && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-cyan-500 font-mono animate-pulse">Initializing...</div>}
 
+            {/* THE NEW DASHBOARD */}
+            {!loading && (
+                <PrismQueryPanel
+                    searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+                    prismVector={prismVector} setPrismVector={setPrismVector}
+                    isPrismActive={isPrismActive} setIsPrismActive={setIsPrismActive}
+                />
+            )}
+
             <Canvas camera={{ position: [0, 0, 2000], fov: 45, near: 0.1, far: 20000 }} onPointerMissed={() => setSelectedNode(null)}>
                 <color attach="background" args={['#020617']} />
                 <fog attach="fog" args={['#020617', 2000, 20000]} />
                 <Stars radius={50000} depth={50} count={5000} factor={4} saturation={0} fade />
                 {!loading && (
                     <group>
-                        <NodeCloud nodes={nodes} synapses={synapses} onHover={setHoveredNode} onSelect={setSelectedNode} physics={physics} isLive={isLive} viewMode={viewMode} simRef={simRef} />
+                        <NodeCloud 
+                            nodes={nodes} synapses={synapses} onHover={setHoveredNode} 
+                            onSelect={setSelectedNode} physics={physics} isLive={isLive} 
+                            viewMode={viewMode} simRef={simRef} 
+                            searchQuery={searchQuery} prismVector={prismVector} isPrismActive={isPrismActive} 
+                        />
                         <SynapseNetwork nodes={nodes} synapses={synapses} viewMode={viewMode} simRef={simRef} showSynapses={showSynapses} />
                     </group>
                 )}
