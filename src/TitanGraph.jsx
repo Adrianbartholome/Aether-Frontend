@@ -2,8 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars } from '@react-three/drei';
 import * as THREE from 'three';
-import { X, Zap, Sliders, MousePointer2, Terminal, Play, Pause, Eye, EyeOff, Lock, Unlock, Aperture, Activity, Search, Target } from 'lucide-react';
-
+import { X, Zap, Sliders, MousePointer2, Terminal, Play, Pause, Eye, EyeOff, Lock, Unlock, Aperture, Activity, Search, Target, MoreVertical, RefreshCw, Cloud } from 'lucide-react';
 // --- HELPER: TEXTURE GENERATOR ---
 const createCircleTexture = () => {
     const canvas = document.createElement('canvas');
@@ -277,8 +276,8 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
                 }
             }
             if (matchCount > 0) {
-                targetV /= matchCount; 
-                targetA /= matchCount; 
+                targetV /= matchCount;
+                targetA /= matchCount;
             }
         }
 
@@ -322,19 +321,19 @@ const NodeCloud = ({ nodes, synapses, onHover, onSelect, physics, isLive, viewMo
 
                 if (searchLower) {
                     const textData = `${n[8] || ""} ${n[11] || ""} ${n[12] || ""} ${n[13] || ""}`.toLowerCase();
-                    
+
                     if (textData.includes(searchLower)) {
                         // DIRECT MATCH: Pure Bright White/Gold to pop off the screen
                         resonance = 2.0;
-                        r = 2.0; g = 2.0; b = 1.8; 
+                        r = 2.0; g = 2.0; b = 1.8;
                         isMatch = true;
-                    } 
+                    }
                     else if (matchCount > 0) {
                         // INVERSE MATCH: Tight laser spotlight on the opposite side
                         const invV = targetV * -1;
                         const invA = targetA * -1;
                         const distToInverse = Math.sqrt(Math.pow(val - invV, 2) + Math.pow(aro - invA, 2));
-                        
+
                         if (distToInverse < 0.25) { // Tightened from 0.6
                             const intensity = 1.0 - (distToInverse / 0.25);
                             resonance = 0.1 + (intensity * 2.0);
@@ -591,12 +590,18 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     const [prismVector, setPrismVector] = useState({ x: 0, y: 0 });
     const [isPrismActive, setIsPrismActive] = useState(false);
 
+    // --- HUD & BLEND CONTROLS ---
+    const [uiVisible, setUiVisible] = useState(true);
+    const [showTopMenu, setShowTopMenu] = useState(false);
+    const [showBlendControls, setShowBlendControls] = useState(false);
+    const [blendConfig, setBlendConfig] = useState({ near: 2000, far: 12000 });
+
     const [isLive, setIsLive] = useState(true);
     const [viewMode, setViewMode] = useState('SYNAPTIC');
     const [showSynapses, setShowSynapses] = useState(true);
     const [physics, setPhysics] = useState({
         spacing: 2.0,
-        clusterStrength: 1.0,
+        clusterStrength: 2.0,
         scale: 2000,
         prismZ: 0.0 // <--- ADD THIS: Initialized to 0
     });
@@ -670,7 +675,12 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
     const isPinned = !!selectedNode;
 
     return (
-        <div className="fixed inset-0 z-[100] bg-slate-950 animate-fade-in cursor-crosshair font-mono">
+        <div
+            className="fixed inset-0 z-[100] bg-slate-950 animate-fade-in cursor-crosshair font-mono bg-cover bg-center"
+            style={{
+                backgroundImage: `linear-gradient(to bottom, rgba(2, 6, 23, 0.7), rgba(2, 6, 23, 0.95)), url('/titan/titan_bg.jpg')`
+            }}
+        >
             <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-start z-10 pointer-events-none">
                 <div className="pointer-events-auto">
                     <h1 className="text-xl font-bold text-white tracking-widest uppercase flex items-center gap-2">
@@ -680,111 +690,131 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                         NODES: {nodes.length} | MODE: {viewMode} | ENGINE: GEOMETRIC (v2)
                     </p>
                 </div>
-                <div className="flex gap-2 pointer-events-auto">
-                    <button id="regen-btn" onClick={handleRegen} className="px-3 py-1.5 bg-cyan-950/30 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold rounded hover:bg-cyan-900/50 transition flex items-center gap-2">
-                        ♻️ REFRESH
+                <div className="flex gap-2 pointer-events-auto relative">
+                    <button
+                        onClick={() => setShowTopMenu(!showTopMenu)}
+                        className="px-3 py-1.5 bg-slate-900/80 border border-white/10 text-slate-300 hover:text-white text-[10px] font-bold rounded transition flex items-center gap-2 backdrop-blur-md"
+                    >
+                        <MoreVertical size={12} /> MENU
                     </button>
-                    <button onClick={onClose} className="px-3 py-1.5 bg-red-950/30 border border-red-500/30 text-red-400 text-[10px] font-bold rounded hover:bg-red-900/50 transition">
+
+                    {/* DROPDOWN MENU */}
+                    {showTopMenu && (
+                        <div className="absolute right-20 top-full mt-2 w-48 bg-slate-900/95 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl animate-fade-in-up">
+                            <button onClick={() => { handleRegen(); setShowTopMenu(false); }} className="w-full text-left px-4 py-3 text-[10px] uppercase tracking-widest hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-cyan-400 font-bold">
+                                <RefreshCw size={12} /> REFRESH MAP
+                            </button>
+                            <button onClick={() => { setShowBlendControls(!showBlendControls); setShowTopMenu(false); }} className="w-full text-left px-4 py-3 text-[10px] uppercase tracking-widest hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-300">
+                                <Cloud size={12} /> DEPTH BLENDING
+                            </button>
+                            <button onClick={() => { setUiVisible(!uiVisible); setShowTopMenu(false); }} className="w-full text-left px-4 py-3 text-[10px] uppercase tracking-widest hover:bg-white/5 flex items-center gap-3 transition text-slate-300">
+                                {uiVisible ? <EyeOff size={12} /> : <Eye size={12} />} {uiVisible ? "HIDE UI HUD" : "SHOW UI HUD"}
+                            </button>
+                        </div>
+                    )}
+
+                    <button onClick={onClose} className="px-3 py-1.5 bg-red-950/30 border border-red-500/30 text-red-400 text-[10px] font-bold rounded hover:bg-red-900/50 transition flex items-center gap-1 backdrop-blur-md">
                         <X size={12} /> CLOSE
                     </button>
                 </div>
             </div>
 
-            <div className={`absolute bottom-8 left-8 z-20 w-72 bg-slate-900/95 border border-white/10 rounded-xl p-4 backdrop-blur-md transition-all shadow-2xl ${showControls ? 'opacity-100 translate-y-0' : 'opacity-50 translate-y-10'}`}>
-                <div className="flex justify-between items-center mb-4 border-b border-white/5 pb-2">
+            {uiVisible && (
+                <div className={`absolute bottom-8 left-8 z-20 w-72 bg-slate-900/95 border border-white/10 rounded-xl p-4 backdrop-blur-md transition-all shadow-2xl ${showControls ? 'opacity-100 translate-y-0' : 'opacity-50 translate-y-10'}`}>                <div className="flex justify-between items-center mb-4 border-b border-white/5 pb-2">
                     <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
                         <Sliders size={12} /> Reflex Engine
                     </h3>
                     <button onClick={() => setShowControls(!showControls)} className="text-slate-500 hover:text-white"><X size={12} /></button>
                 </div>
 
-                <div className="space-y-5">
-                    <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => setViewMode('SYNAPTIC')} className={`py-2 border rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${viewMode === 'SYNAPTIC' ? 'bg-cyan-900/50 border-cyan-500 text-cyan-300' : 'bg-slate-800 border-white/5 text-slate-500 hover:text-white'}`}>
-                            <Activity size={12} /> SYNAPTIC
-                        </button>
-                        <button onClick={() => setViewMode('PRISM')} className={`py-2 border rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${viewMode === 'PRISM' ? 'bg-purple-900/50 border-purple-500 text-purple-300' : 'bg-slate-800 border-white/5 text-slate-500 hover:text-white'}`}>
-                            <Aperture size={12} /> PRISM
-                        </button>
-                    </div>
-
-                    <div className="pt-2 border-t border-white/5">
-                        <button
-                            onClick={() => setShowSynapses(!showSynapses)}
-                            className={`w-full py-2 rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${showSynapses ? 'bg-cyan-500/20 border border-cyan-500/50 text-cyan-300' : 'bg-slate-800 border border-white/5 text-slate-500 hover:text-white'}`}
-                        >
-                            {showSynapses ? <Eye size={12} /> : <EyeOff size={12} />}
-                            {showSynapses ? "SYNAPSES: ON" : "SYNAPSES: OFF"}
-                        </button>
-                    </div>
-
-                    {viewMode === 'SYNAPTIC' ? (
-                        /* --- ORIGINAL SYNAPTIC SLIDERS --- */
-                        <div className="space-y-3 pt-2 border-t border-white/5">
-                            <div>
-                                <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase"><span>Island Spacing</span><span>{physics.spacing}x</span></div>
-                                <input type="range" min="0.1" max="10.0" step="0.1" value={physics.spacing} onChange={(e) => setPhysics({ ...physics, spacing: parseFloat(e.target.value) })} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
-                            </div>
-                            <div>
-                                <div className="flex justify-between text-[10px] text-purple-400 mb-1 uppercase"><span>Cluster Gravity</span><span>{physics.clusterStrength}x</span></div>
-                                <input type="range" min="0.0" max="5.0" step="0.1" value={physics.clusterStrength} onChange={(e) => setPhysics({ ...physics, clusterStrength: parseFloat(e.target.value) })} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500" />
-                            </div>
-                            <div>
-                                <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase"><span>Universe Scale</span><span>{physics.scale}</span></div>
-                                <input type="range" min="100" max="5000" step="100" value={physics.scale} onChange={(e) => setPhysics({ ...physics, scale: parseFloat(e.target.value) })} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
-                            </div>
+                    <div className="space-y-5">
+                        <div className="grid grid-cols-2 gap-2">
+                            <button onClick={() => setViewMode('SYNAPTIC')} className={`py-2 border rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${viewMode === 'SYNAPTIC' ? 'bg-cyan-900/50 border-cyan-500 text-cyan-300' : 'bg-slate-800 border-white/5 text-slate-500 hover:text-white'}`}>
+                                <Activity size={12} /> SYNAPTIC
+                            </button>
+                            <button onClick={() => setViewMode('PRISM')} className={`py-2 border rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${viewMode === 'PRISM' ? 'bg-purple-900/50 border-purple-500 text-purple-300' : 'bg-slate-800 border-white/5 text-slate-500 hover:text-white'}`}>
+                                <Aperture size={12} /> PRISM
+                            </button>
                         </div>
-                    ) : (
-                        < div className="space-y-3 pt-2 border-t border-white/5">
-                            {/* 1. SCALE (The one I missed!) */}
-                            <div>
-                                <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
-                                    <span>Prism Scale</span><span>{physics.scale}</span>
-                                </div>
-                                <input
-                                    type="range" min="500" max="5000" step="100"
-                                    value={physics.scale}
-                                    onChange={(e) => setPhysics({ ...physics, scale: parseFloat(e.target.value) })}
-                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                                />
-                            </div>
 
-                            {/* 2. EXPANSION (Flipped Logic) */}
-                            <div>
-                                <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase">
-                                    <span>Core Expansion</span><span>{physics.spacing}</span>
-                                </div>
-                                <input
-                                    type="range" min="0.1" max="2" step="0.05"
-                                    value={physics.spacing}
-                                    onChange={(e) => setPhysics({ ...physics, spacing: parseFloat(e.target.value) })}
-                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                                />
-                            </div>
-
-                            {/* 3. SOUL LAYERS */}
-                            <div>
-                                <div className="flex justify-between text-[10px] text-purple-400 mb-1 uppercase">
-                                    <span>Soul Stratification</span><span>{physics.prismZ}</span>
-                                </div>
-                                <input
-                                    type="range" min="0" max="5.0" step="0.1"
-                                    value={physics.prismZ}
-                                    onChange={(e) => setPhysics({ ...physics, prismZ: parseFloat(e.target.value) })}
-                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                                />
-                            </div>
+                        <div className="pt-2 border-t border-white/5">
+                            <button
+                                onClick={() => setShowSynapses(!showSynapses)}
+                                className={`w-full py-2 rounded-lg text-[10px] font-bold tracking-widest flex items-center justify-center gap-2 transition-all ${showSynapses ? 'bg-cyan-500/20 border border-cyan-500/50 text-cyan-300' : 'bg-slate-800 border border-white/5 text-slate-500 hover:text-white'}`}
+                            >
+                                {showSynapses ? <Eye size={12} /> : <EyeOff size={12} />}
+                                {showSynapses ? "SYNAPSES: ON" : "SYNAPSES: OFF"}
+                            </button>
                         </div>
-                    )}
 
-                    <div className="bg-black/50 rounded p-2 border border-white/5 font-mono text-[10px] h-16 flex flex-col justify-end overflow-hidden">
-                        <div className="text-slate-500 mb-1 flex items-center gap-1"><Terminal size={8} /> SYSTEM LOG:</div>
-                        <div className="text-slate-400">
-                            {'>'} {viewMode === 'PRISM' ? "Spectral Projection Active." : "Geometric Lattice Stable."}
+                        {viewMode === 'SYNAPTIC' ? (
+                            /* --- ORIGINAL SYNAPTIC SLIDERS --- */
+                            <div className="space-y-3 pt-2 border-t border-white/5">
+                                <div>
+                                    <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase"><span>Island Spacing</span><span>{physics.spacing}x</span></div>
+                                    <input type="range" min="0.1" max="10.0" step="0.1" value={physics.spacing} onChange={(e) => setPhysics({ ...physics, spacing: parseFloat(e.target.value) })} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                                </div>
+                                <div>
+                                    <div className="flex justify-between text-[10px] text-purple-400 mb-1 uppercase"><span>Cluster Gravity</span><span>{physics.clusterStrength}x</span></div>
+                                    <input type="range" min="0.0" max="5.0" step="0.1" value={physics.clusterStrength} onChange={(e) => setPhysics({ ...physics, clusterStrength: parseFloat(e.target.value) })} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500" />
+                                </div>
+                                <div>
+                                    <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase"><span>Universe Scale</span><span>{physics.scale}</span></div>
+                                    <input type="range" min="100" max="5000" step="100" value={physics.scale} onChange={(e) => setPhysics({ ...physics, scale: parseFloat(e.target.value) })} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
+                                </div>
+                            </div>
+                        ) : (
+                            < div className="space-y-3 pt-2 border-t border-white/5">
+                                {/* 1. SCALE (The one I missed!) */}
+                                <div>
+                                    <div className="flex justify-between text-[10px] text-emerald-400 mb-1 uppercase">
+                                        <span>Prism Scale</span><span>{physics.scale}</span>
+                                    </div>
+                                    <input
+                                        type="range" min="500" max="5000" step="100"
+                                        value={physics.scale}
+                                        onChange={(e) => setPhysics({ ...physics, scale: parseFloat(e.target.value) })}
+                                        className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                    />
+                                </div>
+
+                                {/* 2. EXPANSION (Flipped Logic) */}
+                                <div>
+                                    <div className="flex justify-between text-[10px] text-cyan-400 mb-1 uppercase">
+                                        <span>Core Expansion</span><span>{physics.spacing}</span>
+                                    </div>
+                                    <input
+                                        type="range" min="0.1" max="2" step="0.05"
+                                        value={physics.spacing}
+                                        onChange={(e) => setPhysics({ ...physics, spacing: parseFloat(e.target.value) })}
+                                        className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                    />
+                                </div>
+
+                                {/* 3. SOUL LAYERS */}
+                                <div>
+                                    <div className="flex justify-between text-[10px] text-purple-400 mb-1 uppercase">
+                                        <span>Soul Stratification</span><span>{physics.prismZ}</span>
+                                    </div>
+                                    <input
+                                        type="range" min="0" max="5.0" step="0.1"
+                                        value={physics.prismZ}
+                                        onChange={(e) => setPhysics({ ...physics, prismZ: parseFloat(e.target.value) })}
+                                        className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="bg-black/50 rounded p-2 border border-white/5 font-mono text-[10px] h-16 flex flex-col justify-end overflow-hidden">
+                            <div className="text-slate-500 mb-1 flex items-center gap-1"><Terminal size={8} /> SYSTEM LOG:</div>
+                            <div className="text-slate-400">
+                                {'>'} {viewMode === 'PRISM' ? "Spectral Projection Active." : "Geometric Lattice Stable."}
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {
                 activeNode && (
@@ -876,7 +906,7 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
             {loading && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-cyan-500 font-mono animate-pulse">Initializing...</div>}
 
             {/* THE NEW DASHBOARD */}
-            {!loading && (
+            {uiVisible && !loading && (
                 <PrismQueryPanel
                     searchQuery={searchQuery} setSearchQuery={setSearchQuery}
                     prismVector={prismVector} setPrismVector={setPrismVector}
@@ -884,17 +914,43 @@ const TitanGraph = ({ workerEndpoint, onClose }) => {
                 />
             )}
 
+            {/* DEPTH BLENDING PANEL */}
+            {uiVisible && showBlendControls && (
+                <div className="absolute top-20 right-8 z-20 w-64 bg-slate-900/95 border border-white/10 rounded-xl p-4 backdrop-blur-md shadow-2xl animate-fade-in-up">
+                    <div className="flex justify-between items-center mb-4 border-b border-white/5 pb-2">
+                        <h3 className="text-[10px] font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                            <Cloud size={12} /> Depth Blending
+                        </h3>
+                        <button onClick={() => setShowBlendControls(false)} className="text-slate-500 hover:text-rose-400 transition"><X size={12} /></button>
+                    </div>
+                    <div className="space-y-4">
+                        <div>
+                            <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-widest">
+                                <span>Fade Start</span><span className="font-mono text-cyan-400">{blendConfig.near}</span>
+                            </div>
+                            <input type="range" min="0" max="5000" step="50" value={blendConfig.near} onChange={(e) => setBlendConfig({ ...blendConfig, near: parseInt(e.target.value) })} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                        </div>
+                        <div>
+                            <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-widest">
+                                <span>Fade End</span><span className="font-mono text-purple-400">{blendConfig.far}</span>
+                            </div>
+                            <input type="range" min="1000" max="20000" step="100" value={blendConfig.far} onChange={(e) => setBlendConfig({ ...blendConfig, far: parseInt(e.target.value) })} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500" />
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <Canvas camera={{ position: [0, 0, 2000], fov: 45, near: 0.1, far: 20000 }} onPointerMissed={() => setSelectedNode(null)}>
-                <color attach="background" args={['#020617']} />
-                <fog attach="fog" args={['#020617', 2000, 20000]} />
+                {/* Canvas is now transparent to show the HTML background image */}
+                <fog attach="fog" args={['#000000', blendConfig.near, blendConfig.far]} />
                 <Stars radius={50000} depth={50} count={5000} factor={4} saturation={0} fade />
                 {!loading && (
                     <group>
-                        <NodeCloud 
-                            nodes={nodes} synapses={synapses} onHover={setHoveredNode} 
-                            onSelect={setSelectedNode} physics={physics} isLive={isLive} 
-                            viewMode={viewMode} simRef={simRef} 
-                            searchQuery={searchQuery} prismVector={prismVector} isPrismActive={isPrismActive} 
+                        <NodeCloud
+                            nodes={nodes} synapses={synapses} onHover={setHoveredNode}
+                            onSelect={setSelectedNode} physics={physics} isLive={isLive}
+                            viewMode={viewMode} simRef={simRef}
+                            searchQuery={searchQuery} prismVector={prismVector} isPrismActive={isPrismActive}
                         />
                         <SynapseNetwork nodes={nodes} synapses={synapses} viewMode={viewMode} simRef={simRef} showSynapses={showSynapses} />
                     </group>

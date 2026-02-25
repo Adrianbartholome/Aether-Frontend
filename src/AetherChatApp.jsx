@@ -252,6 +252,7 @@ const App = () => {
     const [isFallbackActive, setIsFallbackActive] = useState(false);
 
     const [dormantAnchor, setDormantAnchor] = useState(null);
+    const [systemStatus, setSystemStatus] = useState("System Ready.");
 
     // Add a function to check the Shield Status from your backend
     const syncShieldStatus = async () => {
@@ -265,6 +266,23 @@ const App = () => {
             console.error("Shield Sync Failed", e);
         }
     };
+
+    // --- TELEMETRY POLLER ---
+    useEffect(() => {
+        const pollStatus = async () => {
+            try {
+                const res = await fetch(`${WORKER_ENDPOINT}cortex/status`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setSystemStatus(data.message);
+                }
+            } catch (err) {
+                // Ignore silent network errors while polling
+            }
+        };
+        const interval = setInterval(pollStatus, 3000); // Check every 3 seconds
+        return () => clearInterval(interval);
+    }, []);
 
     // --- HARDENED RECOVERY CHECK ON MOUNT ---
     useEffect(() => {
@@ -1451,6 +1469,14 @@ const App = () => {
                             {APP_TITLE}
                         </span>
                     </h1>
+
+                    {/* BACKGROUND TASK HUD */}
+                    {systemStatus !== "System Ready." && (
+                        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-purple-900/60 border border-purple-500/50 text-purple-200 px-4 py-1.5 rounded-full text-xs font-bold animate-pulse shadow-[0_0_20px_rgba(168,85,247,0.4)] backdrop-blur-xl z-50">
+                            <Activity size={14} />
+                            {systemStatus}
+                        </div>
+                    )}
 
                     <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/50 border border-white/10">
                         <div className={`w-2 h-2 rounded-full ${isFallbackActive ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
