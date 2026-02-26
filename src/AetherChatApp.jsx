@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, query, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw, AlertTriangle, Smile, Save, Activity } from 'lucide-react';import EmojiPicker, { Theme } from 'emoji-picker-react';
+import { Send, FileText, Loader, Trash2, MoreVertical, History, Archive, Zap, Copy, Minimize2, Maximize2, HelpCircle, UploadCloud, Hexagon, Database, MessageSquare, Sliders, RefreshCw, RotateCcw, AlertTriangle, Smile, Save, Activity } from 'lucide-react'; import EmojiPicker, { Theme } from 'emoji-picker-react';
 import TitanGraph from './TitanGraph';
 
 // --- CONFIGURATION ---
@@ -967,7 +967,8 @@ const App = () => {
             memory_text: query,
             // THE FIX: Prepend the System Prompt to the history
             // V5.8 GHOST FIX: Strictly filter out any messages from before the user clicked "Clear Local Cache"
-            history: `[SYSTEM INSTRUCTION]: ${SYSTEM_PROMPT}\n\n[BEGIN CONVERSATION LOG]\n` + context.filter(m => !m.timestamp || m.timestamp.toMillis() > viewSince).map(m => `${m.sender}: ${m.text}`).join('\n')        };
+            history: `[SYSTEM INSTRUCTION]: ${SYSTEM_PROMPT}\n\n[BEGIN CONVERSATION LOG]\n` + context.filter(m => !m.timestamp || m.timestamp.toMillis() > viewSince).map(m => `${m.sender}: ${m.text}`).join('\n')
+        };
 
         try {
             const res = await fetch(WORKER_ENDPOINT, {
@@ -1117,7 +1118,7 @@ const App = () => {
         if (!input.trim() && !file) return;
 
         // V5.8 STRICT FORMATTING: Aligns UI sticky note with the core sharding labels
-        const userInput = file 
+        const userInput = file
             ? (input.trim() ? `[FILE: ${file.name}]\n${input.trim()}` : `[FILE: ${file.name}]`)
             : input.trim();
 
@@ -1125,12 +1126,12 @@ const App = () => {
         // Look for exactly one occurrence of our new protocol tokens
         const codeRegex = /CORE_SIG_(MEM_01|SUM_02|FILE_03)/g;
         const codes = userInput.match(codeRegex) || [];
-        
+
         if (codes.length === 1) {
             const protocol = codes[0];
             const scoreMatch = userInput.match(/\[SCORE:\s*(\d+)\]/);
             const score = scoreMatch ? parseInt(scoreMatch[1], 10) : 5;
-            
+
             updateStatus(`PROTOCOL DETECTED: ${protocol}`, 'working');
 
             if (protocol === 'CORE_SIG_FILE_03' && file) {
@@ -1183,8 +1184,8 @@ const App = () => {
             if (checkRes && checkRes.exists) {
                 updateStatus("SECURITY: Artifact Already Anchored.", 'error');
                 await saveMessage('bot', `[SYSTEM REJECT]: The artifact '${file.name}' is already woven into the Lithographic Core. Redundant sharding aborted.`, 'system');
-                clearFile(); 
-                setLoading(false); 
+                clearFile();
+                setLoading(false);
                 return;
             }
             // ----------------------------------------------------
@@ -1461,152 +1462,144 @@ const App = () => {
 
                 {/* --- HEADER (Z-30 FIXED) --- */}
                 <header className="flex justify-between items-center bg-slate-900/40 backdrop-blur-md border-b border-white/10 p-4 rounded-xl shadow-2xl mb-6 relative z-30">
-                    <h1 className="text-xl font-bold flex items-center gap-3 italic tracking-tighter text-slate-100">
-                        <img
-                            src="/titan/android-chrome-192x192.png"
-                            alt="Aether Titan Interface"
-                            className="h-10 w-auto rounded-lg shadow-[0_0_15px_rgba(34,211,238,0.2)] border border-cyan-500/20"
-                        />
-                        <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-slate-400">
-                            {APP_TITLE}
-                        </span>
-                    </h1>
 
-                    {/* BACKGROUND TASK HUD */}
-                    {systemStatus !== "System Ready." && (
-                        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-purple-900/60 border border-purple-500/50 text-purple-200 px-4 py-1.5 rounded-full text-xs font-bold animate-pulse shadow-[0_0_20px_rgba(168,85,247,0.4)] backdrop-blur-xl z-50">
-                            <Activity size={14} />
-                            {systemStatus}
-                        </div>
-                    )}
+                    {/* LEFT GROUP: TITLE & HUD */}
+                    <div className="flex items-center gap-4">
+                        <h1 className="text-xl font-bold flex items-center gap-3 italic tracking-tighter text-slate-100 shrink-0">
+                            <img
+                                src="/titan/android-chrome-192x192.png"
+                                alt="Aether Titan Interface"
+                                className="h-10 w-auto rounded-lg shadow-[0_0_15px_rgba(34,211,238,0.2)] border border-cyan-500/20"
+                            />
+                            <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-slate-400">
+                                {APP_TITLE}
+                            </span>
+                        </h1>
 
-                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/50 border border-white/10">
-                        <div className={`w-2 h-2 rounded-full ${isFallbackActive ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
-                        <span className="text-[10px] font-mono text-slate-300 uppercase tracking-tighter">
-                            {activeModel}
-                        </span>
-
-                        <button
-                            onClick={async () => {
-                                const res = await fetch(`${WORKER_ENDPOINT}admin/shield/toggle_3`, { method: 'POST' });
-                                syncShieldStatus();
-                            }}
-                            className={`ml-2 text-[9px] px-2 py-0.5 rounded border transition-all ${activeModel === 'gemini-3-flash-preview'
-                                ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)]'
-                                : 'bg-slate-700 border-white/10 text-slate-400 hover:text-white'
-                                }`}
-                        >
-                            {activeModel === 'gemini-3-flash-preview' ? 'LOCKED 3.0' : 'FORCE 3.0'}
-                        </button>
-
-                        {/* ONLY show RESET if we are in fallback AND NOT manually locked */}
-                        {isFallbackActive && activeModel !== 'gemini-3-flash-preview' && (
-                            <button
-                                onClick={async () => {
-                                    await fetch(`${WORKER_ENDPOINT}admin/shield/reset`, { method: 'POST' });
-                                    syncShieldStatus();
-                                }}
-                                className="ml-2 text-[9px] bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 px-2 py-0.5 rounded border border-amber-500/30"
-                            >
-                                RESET LIMIT
-                            </button>
+                        {/* BACKGROUND TASK HUD - Now stays next to title */}
+                        {systemStatus !== "System Ready." && (
+                            <div className="flex items-center gap-2 bg-purple-900/60 border border-purple-500/50 text-purple-200 px-4 py-1.5 rounded-full text-xs font-bold animate-pulse shadow-[0_0_20px_rgba(168,85,247,0.4)] backdrop-blur-xl shrink-0">
+                                <Activity size={14} />
+                                {systemStatus}
+                            </div>
                         )}
                     </div>
-                    <div className="flex gap-2 items-center">
-                        <Tooltip text="Manual Core Anchor" enabled={tooltipsEnabled}>
+
+                    {/* RIGHT GROUP: MODEL TOGGLE & MENU */}
+                    <div className="flex items-center gap-3">
+                        {/* MODEL TOGGLE */}
+                        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/50 border border-white/10 shrink-0">
+                            <div className={`w-2 h-2 rounded-full ${isFallbackActive ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+                            <span className="text-[10px] font-mono text-slate-300 uppercase tracking-tighter">
+                                {activeModel}
+                            </span>
                             <button
-                                onClick={() => {
-                                    // 1. ASK THE ARCHITECT
-                                    const inputScore = window.prompt("TITAN PROTOCOL: Set Priority Index (1-9)", "9");
-
-                                    // 2. If Cancelled, abort
-                                    if (inputScore === null) return;
-
-                                    // 3. Security: Validate score input (1-9 only)
-                                    const score = validateNumericInput(inputScore, 1, 9);
-                                    if (score === null) {
-                                        updateStatus("SECURITY: Invalid score. Must be between 1-9.", 'error');
-                                        return;
-                                    }
-
-                                    // 4. TRANSMIT WITH OVERRIDE
-                                    executeTitanCommand({
-                                        action: 'commit',
-                                        commit_type: 'full',
-                                        memory_text: messages.map(m => m.text).join('\n'),
-                                        override_score: score // <--- Sending YOUR score
-                                    });
+                                onClick={async () => {
+                                    await fetch(`${WORKER_ENDPOINT}admin/shield/toggle_3`, { method: 'POST' });
+                                    syncShieldStatus();
                                 }}
-                                className="bg-indigo-600/80 hover:bg-indigo-500 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] p-2 rounded-lg text-xs flex items-center gap-1 transition-all border border-indigo-400/30 text-white"
+                                className={`ml-2 text-[9px] px-2 py-0.5 rounded border transition-all ${activeModel === 'gemini-3-flash-preview'
+                                    ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)]'
+                                    : 'bg-slate-700 border-white/10 text-slate-400 hover:text-white'
+                                    }`}
                             >
-                                <Archive size={14} /> Anchor
+                                {activeModel === 'gemini-3-flash-preview' ? 'LOCKED 3.0' : 'FORCE 3.0'}
                             </button>
-                        </Tooltip>
-                        <div className="relative" ref={menuRef}>
-                            <Tooltip text="System Access" enabled={tooltipsEnabled}>
-                                <button onClick={() => setShowMenu(!showMenu)} className="bg-slate-800/50 hover:bg-slate-700/50 p-2 rounded-lg transition border border-white/10 text-slate-300 hover:text-white">
-                                    <MoreVertical size={18} />
+                        </div>
+
+                        {/* ACTION BUTTONS */}
+                        <div className="flex gap-2 items-center shrink-0">
+                            <Tooltip text="Manual Core Anchor" enabled={tooltipsEnabled}>
+                                <button
+                                    onClick={() => {
+                                        const inputScore = window.prompt("TITAN PROTOCOL: Set Priority Index (1-9)", "9");
+                                        if (inputScore === null) return;
+                                        const score = validateNumericInput(inputScore, 1, 9);
+                                        if (score === null) {
+                                            updateStatus("SECURITY: Invalid score. Must be between 1-9.", 'error');
+                                            return;
+                                        }
+                                        executeTitanCommand({
+                                            action: 'commit',
+                                            commit_type: 'full',
+                                            memory_text: messages.map(m => m.text).join('\n'),
+                                            override_score: score
+                                        });
+                                    }}
+                                    className="bg-indigo-600/80 hover:bg-indigo-500 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] p-2 rounded-lg text-xs flex items-center gap-1 transition-all border border-indigo-400/30 text-white"
+                                >
+                                    <Archive size={14} /> Anchor
                                 </button>
                             </Tooltip>
-                            {showMenu && (
-                                <div className="absolute right-0 mt-2 w-64 bg-slate-900/95 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
 
-                                    {/* --- ZONE 1: SYSTEM SAFE COMMANDS --- */}
-                                    <div className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-black/20">Local Systems</div>
-
-                                    <button onClick={() => { executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') }); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
-                                        <FileText size={16} className="text-yellow-400" /> Generate Summary
+                            {/* MENU BUTTON & DROPDOWN */}
+                            <div className="relative shrink-0" ref={menuRef}>
+                                <Tooltip text="System Access" enabled={tooltipsEnabled}>
+                                    <button onClick={() => setShowMenu(!showMenu)} className="bg-slate-800/50 hover:bg-slate-700/50 p-2 rounded-lg transition border border-white/10 text-slate-300 hover:text-white">
+                                        <MoreVertical size={18} />
                                     </button>
-                                    <button onClick={handleRestoreHistory} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
-                                        <History size={16} className="text-cyan-400" /> Recall Sequence
-                                    </button>
+                                </Tooltip>
 
-                                    <button onClick={() => setTooltipsEnabled(!tooltipsEnabled)} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
-                                        <HelpCircle size={16} className={tooltipsEnabled ? "text-emerald-400" : "text-slate-500"} />
-                                        {tooltipsEnabled ? "HUD: Active" : "HUD: Disabled"}
-                                    </button>
-                                    <button onClick={handleClearChat} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 text-slate-400 flex items-center gap-3 transition">
-                                        <Minimize2 size={16} /> Clear Local Cache
-                                    </button>
+                                {showMenu && (
+                                    <div className="absolute right-0 mt-2 w-64 bg-slate-900/95 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
 
-                                    <button
-                                        onClick={() => { setShowGraph(true); setShowMenu(false); }}
-                                        className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-300 flex items-center gap-3 border-b border-white/5 transition font-bold"
-                                    >
-                                        <Hexagon size={16} /> Neural Map (3D)
-                                    </button>
+                                        {/* --- ZONE 1: SYSTEM SAFE COMMANDS --- */}
+                                        <div className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-black/20">Local Systems</div>
 
-                                    {/* --- ZONE 2: TITAN PROTOCOLS (DANGER ZONE) --- */}
-                                    <div className="px-4 py-2 text-[10px] font-bold text-red-500/80 uppercase tracking-widest bg-red-950/20 border-t border-white/5">Titan Protocols</div>
+                                        <button onClick={() => { executeTitanCommand({ action: 'commit', commit_type: 'summary', memory_text: messages.map(m => `${m.sender}: ${m.text}`).join('\n') }); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
+                                            <FileText size={16} className="text-yellow-400" /> Generate Summary
+                                        </button>
+                                        <button onClick={handleRestoreHistory} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
+                                            <History size={16} className="text-cyan-400" /> Recall Sequence
+                                        </button>
 
-                                    <button onClick={openSyncConfig} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
-                                        <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
-                                    </button>
+                                        <button onClick={() => setTooltipsEnabled(!tooltipsEnabled)} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
+                                            <HelpCircle size={16} className={tooltipsEnabled ? "text-emerald-400" : "text-slate-500"} />
+                                            {tooltipsEnabled ? "HUD: Active" : "HUD: Disabled"}
+                                        </button>
+                                        <button onClick={handleClearChat} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 text-slate-400 flex items-center gap-3 transition">
+                                            <Minimize2 size={16} /> Clear Local Cache
+                                        </button>
 
-                                    <button onClick={handleRestoreRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-400 flex items-center gap-3 border-b border-white/5 transition">
-                                        <RotateCcw size={16} /> Restore Range (Undo)
-                                    </button>
+                                        <button
+                                            onClick={() => { setShowGraph(true); setShowMenu(false); }}
+                                            className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-300 flex items-center gap-3 border-b border-white/5 transition font-bold"
+                                        >
+                                            <Hexagon size={16} /> Neural Map (3D)
+                                        </button>
 
-                                    <button
-                                        onClick={() => { handleAnchorSession(); setShowMenu(false); }}
-                                        className="w-full text-left px-4 py-3 text-sm bg-indigo-900/20 hover:bg-indigo-900/40 text-indigo-300 flex items-center gap-3 transition font-bold border-b border-white/5"
-                                    >
-                                        <div className="p-1 border border-indigo-400/50 rounded bg-indigo-500/20">
-                                            <Save size={12} className="text-indigo-400" />
-                                        </div>
-                                        Anchor Session (Save State)
-                                    </button>
+                                        {/* --- ZONE 2: TITAN PROTOCOLS (DANGER ZONE) --- */}
+                                        <div className="px-4 py-2 text-[10px] font-bold text-red-500/80 uppercase tracking-widest bg-red-950/20 border-t border-white/5">Titan Protocols</div>
 
-                                    <button onClick={handlePurgeRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-red-900/20 text-red-400 flex items-center gap-3 border-b border-white/5 transition">
-                                        <Trash2 size={16} /> Orbital Purge (Range)
-                                    </button>
+                                        <button onClick={openSyncConfig} className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 flex items-center gap-3 border-b border-white/5 transition text-slate-200">
+                                            <RefreshCw size={16} className="text-purple-400" /> Resync Holograms
+                                        </button>
 
-                                    <button onClick={handleRehashUI} className="w-full text-left px-4 py-3 text-sm bg-red-950/10 hover:bg-red-900/40 text-red-500 flex items-center gap-3 transition font-bold tracking-wide">
-                                        <AlertTriangle size={16} /> REHASH PROTOCOL
-                                    </button>
+                                        <button onClick={handleRestoreRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-cyan-900/20 text-cyan-400 flex items-center gap-3 border-b border-white/5 transition">
+                                            <RotateCcw size={16} /> Restore Range (Undo)
+                                        </button>
 
-                                </div>
-                            )}
+                                        <button
+                                            onClick={() => { handleAnchorSession(); setShowMenu(false); }}
+                                            className="w-full text-left px-4 py-3 text-sm bg-indigo-900/20 hover:bg-indigo-900/40 text-indigo-300 flex items-center gap-3 transition font-bold border-b border-white/5"
+                                        >
+                                            <div className="p-1 border border-indigo-400/50 rounded bg-indigo-500/20">
+                                                <Save size={12} className="text-indigo-400" />
+                                            </div>
+                                            Anchor Session (Save State)
+                                        </button>
+
+                                        <button onClick={handlePurgeRangeUI} className="w-full text-left px-4 py-3 text-sm hover:bg-red-900/20 text-red-400 flex items-center gap-3 border-b border-white/5 transition">
+                                            <Trash2 size={16} /> Orbital Purge (Range)
+                                        </button>
+
+                                        <button onClick={handleRehashUI} className="w-full text-left px-4 py-3 text-sm bg-red-950/10 hover:bg-red-900/40 text-red-500 flex items-center gap-3 transition font-bold tracking-wide">
+                                            <AlertTriangle size={16} /> REHASH PROTOCOL
+                                        </button>
+
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </header>
