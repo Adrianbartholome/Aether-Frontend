@@ -82,11 +82,27 @@ const exponentialBackoffFetch = async (url, options, maxRetries = 5) => {
 };
 
 const chunkText = (text, size, overlap) => {
+    // SECURITY: Scrub null bytes that crash PostgreSQL
+    const safeText = text.replace(/\0/g, ''); 
     const chunks = [];
     let i = 0;
-    while (i < text.length) {
-        chunks.push(text.substring(i, i + size));
-        i += (size - overlap);
+    
+    while (i < safeText.length) {
+        let end = i + size;
+        
+        // Prevent splitting a multi-byte character (emoji/symbol) exactly in half
+        if (end < safeText.length && safeText.charCodeAt(end - 1) >= 0xD800 && safeText.charCodeAt(end - 1) <= 0xDBFF) {
+            end++; // Step forward to include the second half of the character
+        }
+        
+        chunks.push(safeText.substring(i, end));
+        
+        let nextI = end - overlap;
+        // Prevent the next chunk from starting on the wrong half of a character
+        if (nextI > 0 && nextI < safeText.length && safeText.charCodeAt(nextI) >= 0xDC00 && safeText.charCodeAt(nextI) <= 0xDFFF) {
+            nextI--; // Step back to the start of the character
+        }
+        i = nextI;
     }
     return chunks;
 };
