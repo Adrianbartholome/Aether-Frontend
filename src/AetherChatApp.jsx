@@ -10,7 +10,7 @@ const BACKGROUND_IMAGE_URL = "/titan/titan_bg.jpg";
 
 const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/";
 const APP_TITLE = "Aether Titan Interface";
-const MODEL_NAME = 'gemini-2.5-flash';
+const MODEL_NAME = 'Gemma4:e4b';
 
 // --- TUNING ---
 const CHUNK_SIZE = 2000;
@@ -263,7 +263,7 @@ const App = () => {
     const [loading, setLoading] = useState(false);
     const [showGraph, setShowGraph] = useState(false);
 
-    const [activeModel, setActiveModel] = useState('gemini-2.5-flash');
+    const [activeModel, setActiveModel] = useState('Gemma4:e4b');
     const [isFallbackActive, setIsFallbackActive] = useState(false);
 
     const [dormantAnchor, setDormantAnchor] = useState(null);
@@ -276,7 +276,7 @@ const App = () => {
             const data = await res.json();
             // If primary is not viable, we are in fallback mode
             setIsFallbackActive(!data.primary_viable);
-            setActiveModel(data.primary_viable ? 'gemini-2.5-flash' : 'gemini-3-flash-preview');
+            setActiveModel(data.primary_viable ? 'Gemma4:e4b' : 'Gemma4:e4b');
         } catch (e) {
             console.error("Shield Sync Failed", e);
         }
