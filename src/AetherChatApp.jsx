@@ -282,6 +282,19 @@ const App = () => {
         }
     };
 
+    useEffect(() => {
+        const handleBeforeUnload = async (event) => {
+            // This triggers the anchor logic we defined earlier
+            await handleAnchorSession();
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, [messages]); // Dependency on messages ensures we have the latest state
+
     // --- TELEMETRY POLLER ---
     useEffect(() => {
         const pollStatus = async () => {
@@ -459,35 +472,29 @@ const App = () => {
                 const data = await res.json();
 
                 if (data.status === "SUCCESS" && data.anchor) {
-                    // Store it, but don't show it yet
-                    setDormantAnchor(data.anchor);
+                    // TODO 05: Session Age Validation
+                    const savedAnchorTime = new Date(data.anchor.chronos).getTime();
+                    const lastSessionTime = parseInt(localStorage.getItem('aether_last_anchor_time') || "0", 10);
 
-                    // The Polite Greeting
-                    const anchorMessage = "System Online. I have a holographic anchor from our previous session. Would you like a reminder of what we were last talking about?";
+                    // Only prompt if the server anchor is actually newer than what we recorded last
+                    if (savedAnchorTime > lastSessionTime) {
+                        setDormantAnchor(data.anchor);
+                        
+                        // Update our local "last seen" anchor time so we don't spam the prompt next load
+                        localStorage.setItem('aether_last_anchor_time', savedAnchorTime.toString());
 
-                    setMessages(prev => {
-                        if (prev.some(m => m.text === anchorMessage)) return prev;
-
-                        return [
-                            ...prev,
-                            {
-                                sender: 'bot',
-                                text: anchorMessage,
-                                source: 'system'
-                            }
-                        ];
-                    });
+                        const anchorMessage = "System Online. I have a holographic anchor from our previous session. Would you like a reminder of what we were last talking about?";
+                        setMessages(prev => {
+                            if (prev.some(m => m.text === anchorMessage)) return prev;
+                            return [...prev, { sender: 'bot', text: anchorMessage, source: 'system' }];
+                        });
+                    }
                 } else {
-                    // Standard Greeting (First run or no anchor)
+                    // Standard Greeting
                     const standardMessage = "System Online. Ready for input.";
-
                     setMessages(prev => {
                         if (prev.some(m => m.text === standardMessage)) return prev;
-
-                        return [
-                            ...prev,
-                            { sender: 'bot', text: standardMessage, source: 'system' }
-                        ];
+                        return [...prev, { sender: 'bot', text: standardMessage, source: 'system' }];
                     });
                 }
             } catch (e) {
@@ -888,7 +895,7 @@ const App = () => {
         // 4. HEAVY BATCH LOOP
         while (!stopSyncRef.current) {
             // Optimistic Update
-            let totalTargeted = totalNodes + 10;
+            let totalTargeted = totalNodes + 1;
 
             setSyncStats(prev => ({
                 ...prev,
@@ -897,14 +904,18 @@ const App = () => {
             }));
 
             const rangeStart = totalNodes + 1;
-            const rangeEnd = totalNodes + 10;
+            const rangeEnd = totalNodes + 1;
             updateStatus(`SYNCHRONIZING SECTOR: NODES ${rangeStart} - ${rangeEnd}...`, "working");
 
             try {
                 const res = await exponentialBackoffFetch(WORKER_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'sync', gate_threshold: syncThreshold })
+                    body: JSON.stringify({ 
+                        action: 'sync', 
+                        gate_threshold: syncThreshold,
+                        batch_size: 1 
+                    })
                 });
                 const data = await res.json();
 
@@ -924,7 +935,8 @@ const App = () => {
                         const next = {
                             ...prev,
                             count: totalNodes,
-                            targeted: totalNodes + 10,
+                            targeted: totalNodes + 1,
+                            synapses: data.total_synapses || prev.synapses,
                             mode: data.mode === "RETRO_WEAVE" ? "WEAVING" : "ANCHORING"
                         };
                         localStorage.setItem('aether_sync_stats', JSON.stringify(next));
@@ -1355,7 +1367,7 @@ const App = () => {
                                         className="w-20 bg-slate-950 border border-purple-500/40 rounded-lg p-3 text-center text-purple-400 font-mono text-2xl focus:outline-none focus:border-purple-500 shadow-inner"
                                     />
                                     <p className="text-[10px] text-slate-400 mt-4 leading-relaxed uppercase tracking-widest font-bold">
-                                        {syncThreshold >= 7 ? "Economy: Core Signal Only" : syncThreshold <= 3 ? "Burn: High-Density Weave" : "Balanced Resonance"}
+                                        {syncThreshold <= 3 ? "Economy: Core Signal Only" : syncThreshold >= 7 ? "Burn: High-Density Weave" : "Balanced Resonance"}
                                     </p>
                                 </div>
                                 <button onClick={handleSyncHolograms} className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold tracking-widest transition-all shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2">
