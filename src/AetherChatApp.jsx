@@ -175,22 +175,37 @@ const MessageBubble = ({ m, onCopy, isOwn }) => {
             return div.textContent || div.innerText || '';
         };
 
-        const urlRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
-        const parts = text.split(urlRegex);
+        // Updated Regex: Matches URLs OR [Ref:ID]
+        const combinedRegex = /((?:https?:\/\/|www\.)[^\s]+)|(\[Ref:([a-zA-Z0-9-]+)\])/g;
+        const parts = text.split(combinedRegex);
 
         return parts.map((part, i) => {
-            if (part.match(urlRegex)) {
+            if (!part) return null;
+
+            // URL Match
+            if (part.startsWith('http') || part.startsWith('www.')) {
                 const href = part.startsWith('www.') ? `https://${part}` : part;
-                if (isValidUrl(href)) {
-                    const safeHref = escapeHtml(href);
-                    const safeText = escapeHtml(part);
-                    return (
-                        <a key={i} href={safeHref} target="_blank" rel="noopener noreferrer" className="text-cyan-300 underline hover:text-cyan-100 transition-colors break-all" onClick={(e) => e.stopPropagation()}>{safeText}</a>
-                    );
-                }
-                return <span key={i}>{escapeHtml(part)}</span>;
+                return (
+                    <a key={i} href={href} target="_blank" rel="noopener noreferrer" className="text-cyan-300 underline hover:text-cyan-100 transition-colors break-all" onClick={(e) => e.stopPropagation()}>{part}</a>
+                );
             }
-            return <span key={i}>{part}</span>;
+            
+            // Ref-Link Match: The regex splitting puts the Ref group in index i+2
+            // If we found a [Ref:ID] pattern, render the button
+            if (part.startsWith('[Ref:')) {
+                const refId = part.replace('[Ref:', '').replace(']', '');
+                return (
+                    <button 
+                        key={i} 
+                        onClick={(e) => { e.stopPropagation(); onRefClick(refId); }}
+                        className="mx-1 px-1.5 py-0.5 bg-cyan-900/40 border border-cyan-500/50 rounded text-cyan-200 text-[10px] font-mono hover:bg-cyan-600 transition-all cursor-pointer"
+                    >
+                        ⟡ {refId}
+                    </button>
+                );
+            }
+
+            return <span key={i}>{escapeHtml(part)}</span>;
         });
     };
 
@@ -1672,7 +1687,13 @@ const App = () => {
                         </div>
                     )}
                     {visibleMessages.map((m) => (
-                        <MessageBubble key={m.id} m={m} onCopy={copyToClipboard} isOwn={m.sender === 'user'} />
+                        <MessageBubble 
+                            key={m.id} 
+                            m={m} 
+                            onCopy={copyToClipboard} 
+                            isOwn={m.sender === 'user'} 
+                            onRefClick={handleRefClick} // <--- Pass the new handler
+                        />
                     ))}
                     <div ref={messagesEndRef} />
                 </main>
