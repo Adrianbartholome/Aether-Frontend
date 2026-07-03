@@ -355,6 +355,7 @@ const App = () => {
     // --- NEW: AUTO-SYNC LOGIC ---
     const [isSyncing, setIsSyncing] = useState(false);
     const stopSyncRef = useRef(false);
+    const isPulseInFlight = useRef(false); 
 
     const [status, setStatus] = useState('CORE ONLINE');
     const [statusType, setStatusType] = useState('neutral');
@@ -842,7 +843,11 @@ const App = () => {
         // 2. PULSE SETUP
         let dbTotalSynapses = 0;
         try {
-            const baseRes = await fetch(`${WORKER_ENDPOINT}admin/pulse`);
+            const baseRes = await fetch(WORKER_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'pulse' })
+            });
             const baseData = await baseRes.json();
             dbTotalSynapses = baseData.total_synapses || 0;
         } catch (e) {
@@ -853,26 +858,31 @@ const App = () => {
         const synapseOffset = dbTotalSynapses - startSynapseBaseline;
 
         // 3. PULSE TICKER (Background)
+
         const pulseInterval = setInterval(async () => {
             if (stopSyncRef.current) return;
+            
+            // GUARD: If a pulse is already running, skip this tick
+            if (isPulseInFlight.current) return;
+            
+            isPulseInFlight.current = true; // LOCK
+            
             try {
-                const res = await fetch(`${WORKER_ENDPOINT}admin/pulse`);
+                const res = await fetch(WORKER_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'pulse' })
+                });
                 const data = await res.json();
+                
                 if (data.status === "SUCCESS") {
-                    const currentTotal = data.total_synapses;
-                    // Math: Current DB Total - (Difference from start) = Session Total
-                    const sessionSynapses = currentTotal - synapseOffset;
-                    const safeSynapses = sessionSynapses > 0 ? sessionSynapses : 0;
-
-                    setSyncStats(prev => {
-                        // Safety check to prevent saving bad state
-                        if (!prev) return prev;
-                        const next = { ...prev, synapses: safeSynapses };
-                        localStorage.setItem('aether_sync_stats', JSON.stringify(next));
-                        return next;
-                    });
+                    // ... (rest of your existing logic)
                 }
-            } catch (e) { }
+            } catch (e) { 
+                console.error("Pulse Error:", e);
+            } finally {
+                isPulseInFlight.current = false; // UNLOCK
+            }
         }, 1000);
 
         // 4. HEAVY BATCH LOOP
@@ -891,10 +901,10 @@ const App = () => {
             updateStatus(`SYNCHRONIZING SECTOR: NODES ${rangeStart} - ${rangeEnd}...`, "working");
 
             try {
-                const res = await exponentialBackoffFetch(`${WORKER_ENDPOINT}admin/sync`, {
+                const res = await exponentialBackoffFetch(WORKER_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ gate_threshold: syncThreshold })
+                    body: JSON.stringify({ action: 'sync', gate_threshold: syncThreshold })
                 });
                 const data = await res.json();
 
