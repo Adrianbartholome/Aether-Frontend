@@ -9,7 +9,7 @@ import TitanGraph from './TitanGraph';
 const BACKGROUND_IMAGE_URL = "/titan/titan_bg.jpg";
 
 const WORKER_ENDPOINT = "https://aether-immutable-core-84x6i.ondigitalocean.app/";
-const APP_TITLE = "Aether Titan Interface";
+const APP_TITLE = "Aether Titan Interface (v. 2.1)";
 const MODEL_NAME = 'Gemma4:e4b';
 
 // --- TUNING ---
@@ -269,6 +269,8 @@ const App = () => {
     const [dormantAnchor, setDormantAnchor] = useState(null);
     const [systemStatus, setSystemStatus] = useState("System Ready.");
 
+    const [activeRefContent, setActiveRefContent] = useState(null);
+
     // Add a function to check the Shield Status from your backend
     const syncShieldStatus = async () => {
         try {
@@ -396,6 +398,23 @@ const App = () => {
     const updateStatus = (msg, type = 'neutral') => {
         setStatus(msg);
         setStatusType(type);
+    };
+
+    const handleRefClick = async (refId) => {
+        updateStatus(`FETCHING REF: ${refId}...`, 'working');
+        try {
+            const res = await fetch(`${WORKER_ENDPOINT}chronicle/${refId}`);
+            const data = await res.json();
+            
+            if (data.status === "SUCCESS") {
+                setActiveRefContent(data.data);
+                updateStatus("REF LINK SECURED", 'success');
+            } else {
+                updateStatus("REF LINK FAILURE", 'error');
+            }
+        } catch (e) {
+            updateStatus("LINK FAILURE", 'error');
+        }
     };
 
     // --- BODY PAINT ---
