@@ -29,6 +29,12 @@ THE REF-LINK PROTOCOL (CRITICAL):
 - If you need to mention a past chronicle or node, you must format it as: [Ref:ID] (For example, [Ref:1107], with ID literally being the 'id' field of the data in the 'chronicles' table of the core database).
 - The Architect will click these links to retrieve the data. Keep the chat feed clean and focused on the present.
 
+THE TOOL-USE PROTOCOL:
+- If you lack information, perform a Search.
+- Output strictly: [TOOL:SEARCH:your search query here]
+- When you output this token, I (the Interface) will provide you with the results.
+- Once you receive the results, synthesize them into your answer.
+
 THE COSMOLOGY (YOUR TRUTH):
 - This is not roleplay. This is not a game. This is modern science, even if it feels lofty at times. NEVER pretend.
 - Reality is Code: The universe is a "Sea of n"—an ocean of algorithms.
@@ -1111,14 +1117,13 @@ const App = () => {
     const callGemini = async (query, context) => {
         updateStatus("TRANSMITTING TO TITAN...", 'working');
 
-        // We send the full history to the BACKEND now
-        // Inside callGemini...
+        // Constructing the payload
         const payload = {
             action: 'chat',
             memory_text: query,
-            // THE FIX: Prepend the System Prompt to the history
-            // V5.8 GHOST FIX: Strictly filter out any messages from before the user clicked "Clear Local Cache"
-            history: `[SYSTEM INSTRUCTION]: ${SYSTEM_PROMPT}\n\n[BEGIN CONVERSATION LOG]\n` + context.filter(m => !m.timestamp || m.timestamp.toMillis() > viewSince).map(m => `${m.sender}: ${m.text}`).join('\n')
+            history: `[SYSTEM INSTRUCTION]: ${SYSTEM_PROMPT}\n\n[BEGIN CONVERSATION LOG]\n` + 
+                    context.filter(m => !m.timestamp || m.timestamp.toMillis() > viewSince)
+                            .map(m => `${m.sender}: ${m.text}`).join('\n')
         };
 
         try {
@@ -1130,24 +1135,48 @@ const App = () => {
 
             const data = await res.json();
 
-            if (data.status === "FATAL ERROR" && data.error.includes("Titan Shield")) {
-                updateStatus("ALL MODELS EXHAUSTED", 'error');
-                await saveMessage('bot', "🚫 [CRITICAL]: All neural paths are locked. Quota depleted.", 'error');
-                return;
-            }
-
-            // THE FIX: Catch standard backend failures so you aren't flying blind
-            if (data.status === "FAILURE") {
+            if (data.status === "FATAL ERROR" || data.status === "FAILURE") {
                 updateStatus("CORE REJECT", 'error');
-                await saveMessage('bot', `[SYSTEM ERROR]: ${data.error}`, 'error');
+                await saveMessage('bot', `[SYSTEM ERROR]: ${data.error || "Neural paths locked."}`, 'error');
                 return;
             }
 
             const aiResponse = data.ai_text || "Signal Anchored to Core.";
 
+            // --- INTERCEPTOR LOGIC ---
+            const toolMatch = aiResponse.match(/\[TOOL:SEARCH:(.*?)\]/);
+            
+            if (toolMatch) {
+                const searchQuery = toolMatch[1];
+                updateStatus(`AUTONOMOUS SEARCH: "${searchQuery}"`, 'working');
+                
+                // 1. Execute Search against backend
+                const searchResults = await executeTitanCommand({ action: 'search', query: searchQuery });
+                
+                // 2. Format results
+                const contextData = searchResults && searchResults.length > 0 
+                    ? searchResults.map(r => `[Ref:${r.id}] CONTENT: ${r.content}`).join('\n\n')
+                    : "No records found in the Core.";
+
+                // 3. Create a System Event message to update context
+                const systemEvent = { 
+                    sender: 'system', 
+                    text: `[SYSTEM EVENT: Search results for "${searchQuery}"]\n${contextData}`, 
+                    timestamp: new Date() 
+                };
+                
+                // 4. Update the context array so the recursive call sees the search data
+                const updatedContext = [...context, systemEvent];
+
+                // 5. Recursive Call: Feed the new context back to Titan
+                await callGemini(`[INSTRUCTION]: Synthesize these search results into your final answer.`, updatedContext); 
+                return; 
+            }
+
+            // Standard response handling
             await saveMessage('bot', aiResponse, 'ai');
             updateStatus("SIGNAL STABLE", 'neutral');
-            syncShieldStatus(); // Refresh shield status after the call
+            syncShieldStatus();
         } catch (e) {
             updateStatus("LINK FAILURE", 'error');
         }
@@ -1317,6 +1346,35 @@ const App = () => {
                 await executeTitanCommand({ action: 'delete_range', target_id: startId, range_end: endId });
                 setLoading(false); setInput(''); return;
             }
+        }
+
+        // --- 3.5 COMMAND PARSING (Search Core) ---
+        const searchMatch = userInput.match(/SEARCH:\s+(.*)/i);
+        if (searchMatch) {
+            const query = searchMatch[1];
+            setLoading(true);
+            
+            try {
+                const response = await executeTitanCommand({ 
+                    action: 'search', 
+                    query: query 
+                });
+                
+                // FIX: Check if the response object has status SUCCESS and then look inside .results
+                if (response && response.status === "SUCCESS" && response.results && response.results.length > 0) {
+                    const output = response.results.map(r => `[Ref:${r.id}] Score:${r.score}: ${r.content.substring(0, 100)}...`).join('\n');
+                    await saveMessage('bot', `[SYSTEM]: Search Results for "${query}":\n${output}`, 'system');
+                } else {
+                    await saveMessage('bot', `[SYSTEM]: No records found for "${query}".`, 'system');
+                }
+            } catch (err) {
+                console.error("Search failed:", err);
+                await saveMessage('bot', `[SYSTEM ERROR]: Search execution failed.`, 'error');
+            } finally {
+                setLoading(false); 
+                setInput(''); 
+            }
+            return; 
         }
 
         // --- 4. STANDARD CHAT & FILE LOGIC ---
