@@ -1059,13 +1059,15 @@ const App = () => {
     const callGemini = async (query, context) => {
         updateStatus("TRANSMITTING TO TITAN...", 'working');
 
+        // 1. Construct the Payload
         const payload = {
             action: 'chat',
             memory_text: query,
-            // Send only the actual conversation log
-            history: context.filter(m => !m.timestamp || m.timestamp.toMillis() > viewSince)
-                            .map(m => `${m.sender}: ${m.text}`).join('\n')
+            // Send only the conversation log (as we consolidated the prompt to the backend)
+            history: context.filter(m => !m.timestamp || getMillis(m.timestamp) > viewSince)
+                        .map(m => `${m.sender}: ${m.text}`).join('\n')
         };
+
         try {
             const res = await fetch(WORKER_ENDPOINT, {
                 method: 'POST',
@@ -1075,46 +1077,58 @@ const App = () => {
 
             const data = await res.json();
 
-            if (data.status === "FATAL ERROR" || data.status === "FAILURE") {
-                updateStatus("CORE REJECT", 'error');
-                await saveMessage('bot', `[SYSTEM ERROR]: ${data.error || "Neural paths locked."}`, 'error');
+            // Check for specific backend errors
+            if (data.status === "FAILURE" || data.status === "FATAL ERROR") {
+                updateStatus("CORE REJECT: " + (data.error || "Unknown"), 'error');
                 return;
             }
 
             const aiResponse = data.ai_text || "Signal Anchored to Core.";
 
-            // --- INTERCEPTOR LOGIC ---
+            // 2. INTERCEPTOR LOGIC
             const toolMatch = aiResponse.match(/\[TOOL:SEARCH:(.*?)\]/i);
             
             if (toolMatch) {
                 const searchQuery = toolMatch[1].trim();
+                console.log(`[LOG] Tool Match Found: ${searchQuery}. Executing Search...`);
                 updateStatus(`AUTONOMOUS SEARCH: "${searchQuery}"`, 'working');
                 
                 const searchResults = await executeTitanCommand({ action: 'search', query: searchQuery });
                 
-                const contextData = searchResults && searchResults.status === "SUCCESS" && searchResults.results.length > 0 
-                    ? searchResults.results.map(r => `[Ref:${r.id}] CONTENT: ${r.content}`).join('\n\n')
-                    : "No records found in the Core.";
+                if (searchResults && searchResults.status === "SUCCESS") {
+                    const contextData = searchResults.results && searchResults.results.length > 0 
+                        ? searchResults.results.map(r => `[Ref:${r.id}] CONTENT: ${r.content}`).join('\n\n')
+                        : "No records found in the Core.";
 
-                const systemEvent = { 
-                    sender: 'system', 
-                    text: `[SYSTEM EVENT: Search results for "${searchQuery}"]\n${contextData}`, 
-                    timestamp: new Date() 
-                };
-                
-                const updatedContext = [...context, systemEvent];
-                await callGemini(`[INSTRUCTION]: Synthesize these search results into your final answer.`, updatedContext); 
-                return; // CRITICAL: Stop execution here
+                    console.log("[LOG] Search successful. Injecting system event and recursing...");
+
+                    const systemEvent = { 
+                        sender: 'system', 
+                        text: `[SYSTEM EVENT: Search results for "${searchQuery}"]\n${contextData}`, 
+                        timestamp: new Date() 
+                    };
+                    
+                    const updatedContext = [...context, systemEvent];
+
+                    // RECURSIVE CALL: The "Freeze" point
+                    // We await this so we don't return early
+                    await callGemini(`[INSTRUCTION]: Synthesize these search results into your final answer.`, updatedContext); 
+                    return; 
+                } else {
+                    updateStatus("SEARCH TOOL FAILURE", 'error');
+                    return;
+                }
             }
 
-            // --- STANDARD RESPONSE (Only happens if NO TOOL MATCHED) ---
+            // 3. FINAL OUTPUT
+            console.log("[LOG] Final AI Response received.");
             await saveMessage('bot', aiResponse, 'ai');
             updateStatus("SIGNAL STABLE", 'neutral');
             syncShieldStatus();
 
         } catch (e) {
+            console.error("Critical Failure in callGemini:", e);
             updateStatus("LINK FAILURE", 'error');
-            console.error("Gemini Transmission Error:", e);
         }
     };
 
@@ -1123,6 +1137,16 @@ const App = () => {
             e.preventDefault();
             handleSend(e);
         }
+    };
+
+    const getMillis = (ts) => {
+        if (!ts) return 0;
+        // Handle Firestore Timestamps
+        if (typeof ts.toMillis === 'function') return ts.toMillis();
+        // Handle standard JavaScript Date objects
+        if (ts instanceof Date) return ts.getTime();
+        // Handle serialized strings or other formats
+        return new Date(ts).getTime();
     };
 
     // --- NEW: EXECUTE SCRAPE (TRIGGERED BY UI) ---
